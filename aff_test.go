@@ -1,6 +1,7 @@
 package gospell
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,14 @@ REP a ei
 		t.Fatalf("A Affix should be a cross product")
 	}
 
+	variations := a.Expand("define")
+	if len(variations) != 1 {
+		t.Fatalf("Expected 1 variation got %d", len(variations))
+	}
+	if variations[0] != "redefine" {
+		t.Errorf("Expected %s got %s", "redefine", variations[0])
+	}
+
 	a, ok = aff.AffixMap["D"]
 	if !ok {
 		t.Fatalf("Didn't get Affix for D")
@@ -79,5 +88,102 @@ REP a ei
 	}
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
+	}
+	variations = a.Expand("accept")
+	if len(variations) != 1 {
+		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
+	}
+	if variations[0] != "accepted" {
+		t.Errorf("Expected %s got %s", "accepted", variations[0])
+	}
+}
+
+func TestExpand(t *testing.T) {
+	sample := `
+SET UTF-8
+TRY esianrtolcdugmphbyfvkwzESIANRTOLCDUGMPHBYFVKWZ'
+
+REP 2
+REP f ph
+REP ph f
+
+PFX A Y 1
+PFX A 0 re .
+
+SFX B Y 2
+SFX B 0 ed [^y]
+SFX B y ied y
+`
+	aff, err := NewAFF(strings.NewReader(sample))
+	if err != nil {
+		t.Fatalf("Unable to parse sample: %s", err)
+	}
+
+	cases := []struct {
+		word string
+		want []string
+	}{
+		{"hello", []string{"hello"}},
+		{"try/B", []string{"try", "tried"}},
+		{"work/AB", []string{"work", "worked", "rework", "reworked"}},
+	}
+	for pos, tt := range cases {
+		got, err := aff.Expand(tt.word)
+		if err != nil {
+			t.Errorf("%d: affix expansions error: %s", pos, err)
+		}
+		if !reflect.DeepEqual(tt.want, got) {
+			t.Errorf("%d: affix expansion want %v got %v", pos, tt.want, got)
+		}
+	}
+}
+
+func TestSpell(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+TRY esianrtolcdugmphbyfvkwzESIANRTOLCDUGMPHBYFVKWZ'
+
+REP 2
+REP f ph
+REP ph f
+
+PFX A Y 1
+PFX A 0 re .
+
+SFX B Y 2
+SFX B 0 ed [^y]
+SFX B y ied y
+`
+
+	sampleDic := `3
+hello
+try/B
+work/AB
+`
+
+	aff := strings.NewReader(sampleAff)
+	dic := strings.NewReader(sampleDic)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+
+	cases := []struct {
+		word  string
+		spell bool
+	}{
+		{"hello", true},
+		{"try", true},
+		{"tried", true},
+		{"work", true},
+		{"worked", true},
+		{"rework", true},
+		{"reworked", true},
+		{"junk", false},
+	}
+	for pos, tt := range cases {
+		if gs.Spell(tt.word) != tt.spell {
+			t.Errorf("%d %q was not %v", pos, tt.word, tt.spell)
+		}
 	}
 }

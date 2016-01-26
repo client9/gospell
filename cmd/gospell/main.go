@@ -20,6 +20,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/client9/gospell"
@@ -131,11 +132,36 @@ func main() {
 
 	aff := "/usr/local/share/hunspell/en_US.aff"
 	dic := "/usr/local/share/hunspell/en_US.dic"
+	timeStart := time.Now()
 	h, err := gospell.NewGoSpell(aff, dic)
+	timeEnd := time.Now()
+
+	// note: 10x too slow
+	log.Printf("Loaded in %v", timeEnd.Sub(timeStart))
+
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
 
+	// stdin support
+	if len(args) == 0 {
+		raw, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatalf("Unable to read Stdin: %s", err)
+		}
+		raw = plaintext.StripTemplate(raw)
+		md, err := getExtractor("foo.txt")
+		if err != nil {
+			log.Fatalf("Unable to create parser: %s", err)
+		}
+		rawstring := string(md.Text(raw))
+		words := split(rawstring)
+		for _, word := range words {
+			if known := h.Spell(word); !known {
+				stdout.Printf("%s\n", word)
+			}
+		}
+	}
 	for _, arg := range args {
 		raw, err := ioutil.ReadFile(arg)
 		if err != nil {

@@ -16,9 +16,30 @@ type Affix struct {
 	Rules        []Rule
 }
 
+// Expand provides all variations of a given word based on this affix rule
+func (a Affix) Expand(word string) []string {
+	out := []string{}
+	for _, r := range a.Rules {
+		if !r.Matcher.MatchString(word) {
+			continue
+		}
+		if a.Type == "PFX" {
+			out = append(out, r.AffixText+word)
+			// TODO is does Strip apply to prefixes too?
+		} else {
+			stripWord := word
+			if r.Strip != "" && strings.HasSuffix(word, r.Strip) {
+				stripWord = word[:len(word)-len(r.Strip)]
+			}
+			out = append(out, stripWord+r.AffixText)
+		}
+	}
+	return out
+}
+
 // Rule is a Affix rule
 type Rule struct {
-	Stripping int
+	Strip     string
 	AffixText string         // suffix or prefix
 	Condition string         // original regex pattern
 	Matcher   *regexp.Regexp // converted into
@@ -26,11 +47,70 @@ type Rule struct {
 
 // AFFFile is a partial representation of a Hunspell AFF file.
 type AFFFile struct {
+	Flag              string
 	TryChars          string
 	WordChars         string
 	IconvReplacements [][2]string
 	AffixMap          map[string]Affix
 	Replacements      [][2]string
+}
+
+// Expand expands a word/affix
+func (a AFFFile) Expand(wordAffix string) ([]string, error) {
+	out := []string{}
+	idx := strings.Index(wordAffix, "/")
+
+	// not found
+	if idx == -1 {
+		out = append(out, wordAffix)
+		return out, nil
+	}
+	if idx == 0 || idx+1 == len(wordAffix) {
+		return nil, fmt.Errorf("Slash char found in first or last position")
+	}
+	// safe
+	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
+	out = append(out, word)
+	prefixes := []Affix{}
+	suffixes := []Affix{}
+	for i := 0; i < len(keyString); i++ {
+		// no.. this is a rune
+		//for _, key := range keys {
+		// want keyString to []?something?
+		// then iterate over that
+		key := string(keyString[i])
+		af, ok := a.AffixMap[key]
+		if !ok {
+			return nil, fmt.Errorf("unable to find affix key %s", key)
+		}
+		if !af.CrossProduct {
+			out = append(out, af.Expand(word)...)
+			continue
+		}
+		if af.Type == "PFX" {
+			prefixes = append(prefixes, af)
+		} else {
+			suffixes = append(suffixes, af)
+		}
+	}
+
+	// expand all suffixes with out any prefixes
+	for _, suf := range suffixes {
+		out = append(out, suf.Expand(word)...)
+	}
+	for _, pre := range prefixes {
+		// expand without suffix
+		prewords := pre.Expand(word)
+		out = append(out, prewords...)
+
+		// now do cross product
+		for _, suf := range suffixes {
+			for _, w := range prewords {
+				out = append(out, suf.Expand(w)...)
+			}
+		}
+	}
+	return out, nil
 }
 
 func isCrossProduct(val string) (bool, error) {
@@ -46,6 +126,7 @@ func isCrossProduct(val string) (bool, error) {
 // NewAFF reads an Hunspell AFF file
 func NewAFF(file io.Reader) (*AFFFile, error) {
 	aff := AFFFile{
+		Flag:     "ASCII",
 		AffixMap: make(map[string]Affix),
 	}
 	scanner := bufio.NewScanner(file)
@@ -74,7 +155,6 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 			}
 			// we have 3
 			aff.IconvReplacements = append(aff.IconvReplacements, [2]string{parts[1], parts[2]})
-
 		case "REP":
 			// if only 2 fields, then its the first stanza that just provides a count
 			//  we don't care, as we dynamically allocate
@@ -91,6 +171,12 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))
 			}
 			aff.WordChars = parts[1]
+		case "FLAG":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("FLAG stanze had %d, expected 1", len(parts))
+			}
+			aff.Flag = parts[1]
+			return nil, fmt.Errorf("FLAG stanza not yet supported")
 		case "PFX", "SFX":
 			switch len(parts) {
 			case 4:
@@ -122,8 +208,12 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				if err != nil {
 					return nil, fmt.Errorf("Unable to compile %s", pat)
 				}
+				strip := parts[2]
+				if strip == "0" {
+					strip = ""
+				}
 				a.Rules = append(a.Rules, Rule{
-					Stripping: 0, //parts[2],
+					Strip:     strip,
 					AffixText: parts[3],
 					Condition: parts[4],
 					Matcher:   matcher,

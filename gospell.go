@@ -1,29 +1,100 @@
 package gospell
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // GoSpell is main struct
 type GoSpell struct {
+	Dict map[string]struct{} // likely will contain some value later
 }
 
-// Spell -- not done :-)
+// Spell checks to see if a given word is in the internal dictionaries
+// TODO: add multiple dictionaries
 func (s *GoSpell) Spell(word string) bool {
-	return true
+	log.Printf("Checking %s", word)
+	_, ok := s.Dict[word]
+	return ok
 }
 
 // NewGoSpellReader creates a speller from io.Readers for aff and dic
 // Hunspell files
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
-	_, err := NewAFF(aff)
+	t0 := time.Now()
+	affix, err := NewAFF(aff)
 	if err != nil {
 		return nil, err
 	}
+	t1 := time.Now()
+	log.Printf("AFF processing took %v", t1.Sub(t0))
 
-	return &GoSpell{}, nil
+	gs := GoSpell{}
+
+	scanner := bufio.NewScanner(dic)
+
+	// get first line
+	if !scanner.Scan() {
+		return nil, scanner.Err()
+	}
+	line := scanner.Text()
+	i, err := strconv.ParseInt(line, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	gs.Dict = make(map[string]struct{}, i*5)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		words, err := affix.Expand(line)
+		if err != nil {
+			// Need to support Compound rules
+			//return nil, fmt.Errorf("Unable to process %q: %s", line, err)
+			continue
+		}
+
+		// this is about 100ms faster, than the full case iteration
+		// below
+		if false {
+			for _, word := range words {
+				gs.Dict[word] = struct{}{}
+			}
+		}
+
+		if true {
+			style := CaseStyle(words[0])
+			for _, word := range words {
+				switch style {
+				case AllLower:
+					gs.Dict[word] = struct{}{}
+					gs.Dict[strings.Title(word)] = struct{}{}
+					gs.Dict[strings.ToUpper(word)] = struct{}{}
+				case AllUpper:
+					gs.Dict[strings.ToUpper(word)] = struct{}{}
+				case Title:
+					gs.Dict[word] = struct{}{}
+					gs.Dict[strings.ToUpper(word)] = struct{}{}
+				case Mixed:
+					gs.Dict[word] = struct{}{}
+					gs.Dict[strings.ToUpper(word)] = struct{}{}
+				default:
+					gs.Dict[word] = struct{}{}
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	//	log.Printf("Internal dictionary has %d entries", len(gs.Dict))
+	return &gs, nil
 }
 
 // NewGoSpell from aff and dic Hunspell filenames
