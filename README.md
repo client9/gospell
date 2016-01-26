@@ -11,3 +11,17 @@ merge it in as an official project, I'd be happy to donate code.
 
 http://hunspell.github.io
 https://github.com/hunspell
+
+
+### Where can I get dictionaries?
+
+The Chrome/Chromium browser uses Hunspell and it's source tree
+contains various up-to-date dictionaries.  You can view them at
+[chromium.googlesource.om](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
+and you can check them out locally via
+
+```bash
+git clone --depth=1 https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries
+```
+
+More information can be found in the [chromium developer guide](https://www.chromium.org/developers/how-tos/editing-the-spell-checking-dictionaries)
