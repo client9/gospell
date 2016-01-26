@@ -3,6 +3,11 @@
 
 pure golang spelling dictionary based on hunspell dictionaries.
 
-NOTE: I'm not an expert in linguistics nor spelling.  Help is welcome.
+NOTE: I'm not an expert in linguistics nor spelling.  Help is very
+welcome!
 
+NOTE: This is not affliated with Hunspell although if they wanted
+merge it in as an official project, I'd be happy to donate code.
 
+http://hunspell.github.io
+https://github.com/hunspell
