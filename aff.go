@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"strings"
 	"regexp"
+	"strings"
 )
 
 // Affix is a rule for affix (adding prefixes or suffixes)
@@ -19,9 +19,9 @@ type Affix struct {
 // Rule is a Affix rule
 type Rule struct {
 	Stripping int
-	AffixText string // suffix or prefix
-	Condition string // original regex pattern
-	Matcher   *regexp.Regexp // converted into 
+	AffixText string         // suffix or prefix
+	Condition string         // original regex pattern
+	Matcher   *regexp.Regexp // converted into
 }
 
 // AFFFile is a partial representation of a Hunspell AFF file.
@@ -130,7 +130,7 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				})
 				aff.AffixMap[flag] = a
 			default:
-				return nil, fmt.Errorf("%d stanza had %d fields, expected 4 or 5", parts[0], len(parts))
+				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
 			}
 		default:
 			// nothing
