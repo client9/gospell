@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -59,6 +60,7 @@ type AFFFile struct {
 	IconvReplacements [][2]string
 	Replacements      [][2]string
 	AffixMap          map[rune]Affix
+	CompoundMin       int
 }
 
 // Expand expands a word/affix
@@ -128,8 +130,9 @@ func isCrossProduct(val string) (bool, error) {
 // NewAFF reads an Hunspell AFF file
 func NewAFF(file io.Reader) (*AFFFile, error) {
 	aff := AFFFile{
-		Flag:     "ASCII",
-		AffixMap: make(map[rune]Affix),
+		Flag:        "ASCII",
+		AffixMap:    make(map[rune]Affix),
+		CompoundMin: 3, // default in Hunspell
 	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -168,6 +171,15 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 			}
 			// we have 3
 			aff.Replacements = append(aff.Replacements, [2]string{parts[1], parts[2]})
+		case "COMPOUNDMIN":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDMIN stanza had %d fields, expected 2", len(parts))
+			}
+			val, err := strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("COMPOUNDMIN stanza had %q expected number", parts[1])
+			}
+			aff.CompoundMin = int(val)
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))
@@ -175,7 +187,7 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 			aff.WordChars = parts[1]
 		case "FLAG":
 			if len(parts) != 2 {
-				return nil, fmt.Errorf("FLAG stanze had %d, expected 1", len(parts))
+				return nil, fmt.Errorf("FLAG stanza had %d, expected 1", len(parts))
 			}
 			aff.Flag = parts[1]
 			return nil, fmt.Errorf("FLAG stanza not yet supported")

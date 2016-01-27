@@ -25,6 +25,7 @@ SFX D   0     ed         [^ey]
 SFX D   0     ed         [aeiou]y
 REP 1
 REP a ei
+COMPOUNDMIN 2
 `
 	aff, err := NewAFF(strings.NewReader(sample))
 	if err != nil {
@@ -37,6 +38,10 @@ REP a ei
 
 	if aff.WordChars != "123" {
 		t.Errorf("WORDCHARS stanza is %s", aff.WordChars)
+	}
+
+	if aff.CompoundMin != 2 {
+		t.Errorf("COMPOUNDMIN stanza not processed, want 2 got %d", aff.CompoundMin)
 	}
 
 	if len(aff.IconvReplacements) != 1 {
