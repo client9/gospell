@@ -69,20 +69,18 @@ func enNotURLChar(c rune) bool {
 func removeURL(s string) string {
 	var idx int
 
-	if idx = strings.Index(s, "http"); idx == -1 {
-		return s
-	}
+	for {
+		if idx = strings.Index(s, "http"); idx == -1 {
+			return s
+		}
 
-	news := s[:idx]
-	endx := strings.IndexFunc(s[idx:], enNotURLChar)
-	if endx != -1 {
-		news = news + " " + s[idx+endx:]
+		news := s[:idx]
+		endx := strings.IndexFunc(s[idx:], enNotURLChar)
+		if endx != -1 {
+			news = news + " " + s[idx+endx:]
+		}
+		s = news
 	}
-	if false {
-		fmt.Printf("BEFORE: %s\n", s)
-		fmt.Printf("AFTER: %s\n", news)
-	}
-	return news
 }
 
 func split(s string) []string {
