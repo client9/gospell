@@ -17,6 +17,7 @@ test:
 clean:
 	rm -f *~ cmd/gospell/*~
 	go clean ./...
+	git gc
 
 ci: install lint test
 
