@@ -86,7 +86,8 @@ func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
 		// then iterate over that
 		af, ok := a.AffixMap[key]
 		if !ok {
-			return nil, fmt.Errorf("unable to find affix key %v", key)
+			continue
+			//return nil, fmt.Errorf("unable to find affix key %v", key)
 		}
 		if !af.CrossProduct {
 			out = af.Expand(word, out)
