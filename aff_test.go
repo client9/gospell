@@ -60,18 +60,18 @@ REP a ei
 	if len(aff.AffixMap) != 2 {
 		t.Errorf("AffixMap is wrong size")
 	}
-	a, ok := aff.AffixMap["A"]
+	a, ok := aff.AffixMap[rune('A')]
 	if !ok {
 		t.Fatalf("Didn't get Affix for A")
 	}
-	if a.Type != "PFX" {
-		t.Fatalf("A Affix should be PFX, got %s", a.Type)
+	if a.Type != Prefix {
+		t.Fatalf("A Affix should be PFX %v, got %v", Prefix, a.Type)
 	}
 	if !a.CrossProduct {
 		t.Fatalf("A Affix should be a cross product")
 	}
 
-	variations := a.Expand("define")
+	variations := a.Expand("define", nil)
 	if len(variations) != 1 {
 		t.Fatalf("Expected 1 variation got %d", len(variations))
 	}
@@ -79,17 +79,17 @@ REP a ei
 		t.Errorf("Expected %s got %s", "redefine", variations[0])
 	}
 
-	a, ok = aff.AffixMap["D"]
+	a, ok = aff.AffixMap[rune('D')]
 	if !ok {
 		t.Fatalf("Didn't get Affix for D")
 	}
-	if a.Type != "SFX" {
-		t.Fatalf("Affix D is not a SFX")
+	if a.Type != Suffix {
+		t.Fatalf("Affix D is not a SFX %v", Suffix)
 	}
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
 	}
-	variations = a.Expand("accept")
+	variations = a.Expand("accept", nil)
 	if len(variations) != 1 {
 		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
 	}
@@ -128,7 +128,7 @@ SFX B y ied y
 		{"work/AB", []string{"work", "worked", "rework", "reworked"}},
 	}
 	for pos, tt := range cases {
-		got, err := aff.Expand(tt.word)
+		got, err := aff.Expand(tt.word, nil)
 		if err != nil {
 			t.Errorf("%d: affix expansions error: %s", pos, err)
 		}

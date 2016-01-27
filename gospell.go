@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // GoSpell is main struct
@@ -27,13 +25,10 @@ func (s *GoSpell) Spell(word string) bool {
 // NewGoSpellReader creates a speller from io.Readers for aff and dic
 // Hunspell files
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
-	t0 := time.Now()
 	affix, err := NewAFF(aff)
 	if err != nil {
 		return nil, err
 	}
-	t1 := time.Now()
-	log.Printf("AFF processing took %v", t1.Sub(t0))
 
 	gs := GoSpell{}
 
@@ -50,9 +45,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 	gs.Dict = make(map[string]struct{}, i*5)
 
+	words := []string{}
 	for scanner.Scan() {
 		line := scanner.Text()
-		words, err := affix.Expand(line)
+		words, err = affix.Expand(line, words)
 		if err != nil {
 			// Need to support Compound rules
 			//return nil, fmt.Errorf("Unable to process %q: %s", line, err)

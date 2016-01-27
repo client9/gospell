@@ -8,22 +8,29 @@ import (
 	"strings"
 )
 
+// AffixType is either an affix prefix or suffix
+type AffixType int
+
+// specific Affix types
+const (
+	Prefix AffixType = iota
+	Suffix
+)
+
 // Affix is a rule for affix (adding prefixes or suffixes)
 type Affix struct {
-	Type         string // either PFX or SFX
-	Flag         string
+	Type         AffixType // either PFX or SFX
 	CrossProduct bool
 	Rules        []Rule
 }
 
 // Expand provides all variations of a given word based on this affix rule
-func (a Affix) Expand(word string) []string {
-	out := []string{}
+func (a Affix) Expand(word string, out []string) []string {
 	for _, r := range a.Rules {
-		if !r.Matcher.MatchString(word) {
+		if r.Matcher != nil && !r.Matcher.MatchString(word) {
 			continue
 		}
-		if a.Type == "PFX" {
+		if a.Type == Prefix {
 			out = append(out, r.AffixText+word)
 			// TODO is does Strip apply to prefixes too?
 		} else {
@@ -40,9 +47,8 @@ func (a Affix) Expand(word string) []string {
 // Rule is a Affix rule
 type Rule struct {
 	Strip     string
-	AffixText string         // suffix or prefix
-	Condition string         // original regex pattern
-	Matcher   *regexp.Regexp // converted into
+	AffixText string         // suffix or prefix text to add
+	Matcher   *regexp.Regexp // matcher to see if this rule applies or not
 }
 
 // AFFFile is a partial representation of a Hunspell AFF file.
@@ -51,13 +57,13 @@ type AFFFile struct {
 	TryChars          string
 	WordChars         string
 	IconvReplacements [][2]string
-	AffixMap          map[string]Affix
 	Replacements      [][2]string
+	AffixMap          map[rune]Affix
 }
 
 // Expand expands a word/affix
-func (a AFFFile) Expand(wordAffix string) ([]string, error) {
-	out := []string{}
+func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
+	out = out[:0]
 	idx := strings.Index(wordAffix, "/")
 
 	// not found
@@ -71,23 +77,20 @@ func (a AFFFile) Expand(wordAffix string) ([]string, error) {
 	// safe
 	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
 	out = append(out, word)
-	prefixes := []Affix{}
-	suffixes := []Affix{}
-	for i := 0; i < len(keyString); i++ {
-		// no.. this is a rune
-		//for _, key := range keys {
+	prefixes := make([]Affix, 0, 5)
+	suffixes := make([]Affix, 0, 5)
+	for _, key := range keyString {
 		// want keyString to []?something?
 		// then iterate over that
-		key := string(keyString[i])
 		af, ok := a.AffixMap[key]
 		if !ok {
-			return nil, fmt.Errorf("unable to find affix key %s", key)
+			return nil, fmt.Errorf("unable to find affix key %v", key)
 		}
 		if !af.CrossProduct {
-			out = append(out, af.Expand(word)...)
+			out = af.Expand(word, out)
 			continue
 		}
-		if af.Type == "PFX" {
+		if af.Type == Prefix {
 			prefixes = append(prefixes, af)
 		} else {
 			suffixes = append(suffixes, af)
@@ -96,17 +99,16 @@ func (a AFFFile) Expand(wordAffix string) ([]string, error) {
 
 	// expand all suffixes with out any prefixes
 	for _, suf := range suffixes {
-		out = append(out, suf.Expand(word)...)
+		out = suf.Expand(word, out)
 	}
 	for _, pre := range prefixes {
-		// expand without suffix
-		prewords := pre.Expand(word)
+		prewords := pre.Expand(word, nil)
 		out = append(out, prewords...)
 
 		// now do cross product
 		for _, suf := range suffixes {
 			for _, w := range prewords {
-				out = append(out, suf.Expand(w)...)
+				out = suf.Expand(w, out)
 			}
 		}
 	}
@@ -127,7 +129,7 @@ func isCrossProduct(val string) (bool, error) {
 func NewAFF(file io.Reader) (*AFFFile, error) {
 	aff := AFFFile{
 		Flag:     "ASCII",
-		AffixMap: make(map[string]Affix),
+		AffixMap: make(map[rune]Affix),
 	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -178,6 +180,11 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 			aff.Flag = parts[1]
 			return nil, fmt.Errorf("FLAG stanza not yet supported")
 		case "PFX", "SFX":
+			atype := Prefix
+			if parts[0] == "SFX" {
+				atype = Suffix
+			}
+
 			switch len(parts) {
 			case 4:
 				cross, err := isCrossProduct(parts[2])
@@ -186,36 +193,42 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				}
 				// this is a new Affix!
 				a := Affix{
-					Type:         parts[0],
-					Flag:         parts[1],
+					Type:         atype,
 					CrossProduct: cross,
 				}
-				aff.AffixMap[a.Flag] = a
+				flag := rune(parts[1][0])
+				aff.AffixMap[flag] = a
 			case 5:
 				// does this need to be split out into suffix and prefix?
-				flag := parts[1]
+				flag := rune(parts[1][0])
 				a, ok := aff.AffixMap[flag]
 				if !ok {
 					return nil, fmt.Errorf("Got rules for flag %q but no definition", flag)
 				}
+
+				strip := ""
+				if parts[2] != "0" {
+					strip = parts[2]
+				}
+
+				var matcher *regexp.Regexp
+				var err error
 				pat := parts[4]
-				if a.Type == "PFX" {
-					pat = "^" + pat
-				} else {
-					pat = pat + "$"
+				if pat != "." {
+					if a.Type == Prefix {
+						pat = "^" + pat
+					} else {
+						pat = pat + "$"
+					}
+					matcher, err = regexp.Compile(pat)
+					if err != nil {
+						return nil, fmt.Errorf("Unable to compile %s", pat)
+					}
 				}
-				matcher, err := regexp.Compile(pat)
-				if err != nil {
-					return nil, fmt.Errorf("Unable to compile %s", pat)
-				}
-				strip := parts[2]
-				if strip == "0" {
-					strip = ""
-				}
+
 				a.Rules = append(a.Rules, Rule{
 					Strip:     strip,
 					AffixText: parts[3],
-					Condition: parts[4],
 					Matcher:   matcher,
 				})
 				aff.AffixMap[flag] = a
