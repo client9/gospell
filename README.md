@@ -17,7 +17,7 @@ https://github.com/hunspell
 
 The Chrome/Chromium browser uses Hunspell and it's source tree
 contains various up-to-date dictionaries.  You can view them at
-[chromium.googlesource.om](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
+[chromium.googlesource.com](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
 and you can check them out locally via
 
 ```bash
