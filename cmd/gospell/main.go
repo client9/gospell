@@ -97,33 +97,6 @@ func init() {
 	stdout = log.New(os.Stdout, "", 0)
 }
 
-func getSuffix(filename string) string {
-	idx := strings.LastIndex(filename, ".")
-	if idx == -1 || idx+1 == len(filename) {
-		return ""
-	}
-	return filename[idx+1:]
-}
-
-func getExtractor(filename string) (plaintext.Extractor, error) {
-	var e plaintext.Extractor
-	var err error
-	switch getSuffix(filename) {
-	case "md":
-		e, err = plaintext.NewMarkdownText()
-	case "html":
-		e, err = plaintext.NewHTMLText()
-	case "go", "h", "c", "java":
-		e, err = plaintext.NewGolangText()
-	default:
-		e, err = plaintext.NewIdentity()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return e, nil
-}
-
 func main() {
 	flag.Parse()
 	args := flag.Args()
@@ -148,7 +121,7 @@ func main() {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
 		raw = plaintext.StripTemplate(raw)
-		md, err := getExtractor("foo.txt")
+		md, err := plaintext.ExtractorByFilename("stdin")
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
@@ -165,11 +138,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		raw = plaintext.StripTemplate(raw)
-		md, err := getExtractor(arg)
+		md, err := plaintext.ExtractorByFilename(arg)
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
+		raw = plaintext.StripTemplate(raw)
 		rawstring := string(md.Text(raw))
 		words := split(rawstring)
 		for _, word := range words {
