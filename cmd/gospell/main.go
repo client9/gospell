@@ -15,13 +15,11 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/client9/gospell"
 	"github.com/client9/plaintext"
@@ -31,19 +29,10 @@ var (
 	stdout *log.Logger // see below in init()
 )
 
-// Needs to be replaced based on AFF file
-// enWordChar is true if [a-zA-Z0-9]
-func enWordChar(c rune) bool {
-	//	return c < 255 && (c == 0x27 || unicode.IsLetter(c))// || unicode.IsNumber(c))
-	return c < 255 && unicode.IsLetter(c) // || unicode.IsNumber(c))
-}
-func enNotWordChar(c rune) bool {
-	return !enWordChar(c)
-}
-
 // This needs auditing as I believe it is wrong
 func enURLChar(c rune) bool {
-	return enWordChar(c) ||
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
 		(c >= '0' && c <= '9') ||
 		c == '-' ||
 		c == '_' ||
@@ -83,15 +72,6 @@ func removeURL(s string) string {
 	}
 }
 
-func split(s string) []string {
-	s = removeURL(s)
-	words := strings.FieldsFunc(s, enNotWordChar)
-	if false {
-		fmt.Printf("%v\n", words)
-	}
-	return words
-}
-
 func init() {
 	// we see it so it doesn't use a prefix or include a time stamp.
 	stdout = log.New(os.Stdout, "", 0)
@@ -114,6 +94,8 @@ func main() {
 		log.Fatalf("%s", err)
 	}
 
+	splitter := gospell.NewSplitter(h.WordChars)
+
 	// stdin support
 	if len(args) == 0 {
 		raw, err := ioutil.ReadAll(os.Stdin)
@@ -126,7 +108,8 @@ func main() {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
 		rawstring := string(md.Text(raw))
-		words := split(rawstring)
+		s := removeURL(rawstring)
+		words := splitter.Split(s)
 		for _, word := range words {
 			if known := h.Spell(word); !known {
 				stdout.Printf("%s\n", word)
@@ -144,7 +127,8 @@ func main() {
 		}
 		raw = plaintext.StripTemplate(raw)
 		rawstring := string(md.Text(raw))
-		words := split(rawstring)
+		s := removeURL(rawstring)
+		words := splitter.Split(s)
 		for _, word := range words {
 			if known := h.Spell(word); !known {
 				stdout.Printf("%s\n", word)

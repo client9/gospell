@@ -11,7 +11,8 @@ import (
 
 // GoSpell is main struct
 type GoSpell struct {
-	Dict map[string]struct{} // likely will contain some value later
+	WordChars string              // from AFF file
+	Dict      map[string]struct{} // likely will contain some value later
 }
 
 // Spell checks to see if a given word is in the internal dictionaries
@@ -30,10 +31,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		return nil, err
 	}
 
-	gs := GoSpell{}
-
 	scanner := bufio.NewScanner(dic)
-
 	// get first line
 	if !scanner.Scan() {
 		return nil, scanner.Err()
@@ -43,7 +41,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	if err != nil {
 		return nil, err
 	}
-	gs.Dict = make(map[string]struct{}, i*5)
+	gs := GoSpell{
+		WordChars: affix.WordChars,
+		Dict:      make(map[string]struct{}, i*5),
+	}
 
 	words := []string{}
 	for scanner.Scan() {
