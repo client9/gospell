@@ -26,15 +26,15 @@ func CaseStyle(word string) WordCase {
 	// this iterates over RUNES not BYTES
 	for _, r := range word {
 		runeCount++
-		if runeCount == 1 && unicode.IsUpper(r) {
-			hasTitle = true
-		}
-		if unicode.IsUpper(r) {
-			upperCount++
-			continue
-		}
 		if unicode.IsLower(r) {
 			lowerCount++
+			continue
+		}
+		if unicode.IsUpper(r) {
+			if runeCount == 1 {
+				hasTitle = true
+			}
+			upperCount++
 			continue
 		}
 
