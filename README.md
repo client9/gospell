@@ -13,7 +13,7 @@ welcome!
 
 NOTE: This is not affiliated with Hunspell although if they wanted
 merge it in as an official project, I'd be happy to donate the code
-(althought it's in no shape to do so right now).
+(although it's in no shape to do so right now).
 
 ### Where can I get dictionaries?
 
@@ -32,7 +32,7 @@ Some of the more notable ones are listed below.
 
 http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
 
-The downloaded file has a `.oxt` extenion but it's a compressed `tar`
+The downloaded file has a `.oxt` extension but it's a compressed `tar`
 file.  Extract the files using:
 
 ```
