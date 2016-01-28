@@ -16,7 +16,8 @@ type GoSpell struct {
 	Dict      map[string]struct{} // likely will contain some value later
 }
 
-// Input conversion does any character substitution before checking
+// InputConversion does any character substitution before checking
+//  This is based on the ICONV stanza
 func (s *GoSpell) InputConversion(raw []byte) string {
 	sraw := string(raw)
 	if s.ireplacer == nil {
