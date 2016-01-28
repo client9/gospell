@@ -12,7 +12,8 @@ welcome!
 * https://github.com/hunspell
 
 NOTE: This is not affiliated with Hunspell although if they wanted
-merge it in as an official project, I'd be happy to the donate code.
+merge it in as an official project, I'd be happy to donate the code
+(althought it's in no shape to do so right now).
 
 ### Where can I get dictionaries?
 
