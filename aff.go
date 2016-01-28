@@ -61,6 +61,7 @@ type AFFFile struct {
 	Replacements      [][2]string
 	AffixMap          map[rune]Affix
 	CompoundMin       int
+	CompoundOnly      string
 	CompoundRule      []string
 }
 
@@ -182,7 +183,11 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %q expected number", parts[1])
 			}
 			aff.CompoundMin = int(val)
-
+		case "ONLYINCOMPOUND":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("ONLYINCOMPOUND stanza had %d fields, expected 2", len(parts))
+			}
+			aff.CompoundOnly = parts[1]
 		case "COMPOUNDRULE":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDRULE stanza had %d fields, expected 2", len(parts))

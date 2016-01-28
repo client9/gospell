@@ -142,6 +142,102 @@ SFX B y ied y
 	}
 }
 
+func TestCompound(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDMIN 1
+ONLYINCOMPOUND c
+COMPOUNDRULE 2
+COMPOUNDRULE n*1t
+COMPOUNDRULE n*mp
+WORDCHARS 0123456789
+`
+	sampleDic := `23
+0/nm
+0th/pt
+1/n1
+1st/p
+1th/tc
+2/nm
+2nd/p
+2th/tc
+3/nm
+3rd/p
+3th/tc
+4/nm
+4th/pt
+5/nm
+5th/pt
+6/nm
+6th/pt
+7/nm
+7th/pt
+8/nm
+8th/pt
+9/nm
+9th/pt
+`
+	aff := strings.NewReader(sampleAff)
+	dic := strings.NewReader(sampleDic)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+
+	cases := []struct {
+		word  string
+		spell bool
+	}{
+		{"0", true},
+		{"1", true},
+		{"2", true},
+		{"3", true},
+		{"4", true},
+		{"5", true},
+		{"6", true},
+		{"7", true},
+		{"8", true},
+		{"9", true},
+		{"10", true},
+		{"21", true},
+		{"32", true},
+		{"43", true},
+		{"54", true},
+		{"65", true},
+		{"76", true},
+		{"87", true},
+		{"98", true},
+		{"99", true},
+		{"1st", true},
+		{"21st", true},
+		{"11th", true},
+		{"1th", false},
+		{"12th", false},
+		{"2th", false},
+		{"13th", false},
+		{"3th", false},
+		{"3rd", true},
+		{"33rd", true},
+		{"4th", true},
+		{"5th", true},
+		{"6th", true},
+		{"7th", true},
+		{"8th", true},
+		{"9th", true},
+		{"14th", true},
+		{"15th", true},
+		{"16th", true},
+		{"17th", true},
+		{"18th", true},
+		{"19th", true},
+	}
+	for pos, tt := range cases {
+		if gs.Spell(tt.word) != tt.spell {
+			t.Errorf("%d %q was not %v", pos, tt.word, tt.spell)
+		}
+	}
+}
+
 func TestSpell(t *testing.T) {
 	sampleAff := `
 SET UTF-8
@@ -164,7 +260,6 @@ hello
 try/B
 work/AB
 `
-
 	aff := strings.NewReader(sampleAff)
 	dic := strings.NewReader(sampleDic)
 	gs, err := NewGoSpellReader(aff, dic)
