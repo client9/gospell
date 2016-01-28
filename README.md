@@ -28,7 +28,8 @@ below.
 
 http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
 
-The downloaded file has a `.oxt` extenion but it's a `tar` file.  Extract the files using
+The downloaded file has a `.oxt` extenion but it's a compressed `tar`
+file.  Extract the files using:
 
 ```
 mkdir dict-en
