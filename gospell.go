@@ -12,7 +12,17 @@ import (
 // GoSpell is main struct
 type GoSpell struct {
 	WordChars string              // from AFF file
+	ireplacer *strings.Replacer   // input conversion
 	Dict      map[string]struct{} // likely will contain some value later
+}
+
+// Input conversion does any character substitution before checking
+func (s *GoSpell) InputConversion(raw []byte) string {
+	sraw := string(raw)
+	if s.ireplacer == nil {
+		return sraw
+	}
+	return s.ireplacer.Replace(sraw)
 }
 
 // Spell checks to see if a given word is in the internal dictionaries
@@ -89,6 +99,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+
+	if len(affix.IconvReplacements) > 0 {
+		gs.ireplacer = strings.NewReplacer(affix.IconvReplacements...)
 	}
 	//	log.Printf("Internal dictionary has %d entries", len(gs.Dict))
 	return &gs, nil

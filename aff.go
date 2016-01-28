@@ -57,10 +57,11 @@ type AFFFile struct {
 	Flag              string
 	TryChars          string
 	WordChars         string
-	IconvReplacements [][2]string
+	IconvReplacements []string
 	Replacements      [][2]string
 	AffixMap          map[rune]Affix
 	CompoundMin       int
+	CompoundRule      []string
 }
 
 // Expand expands a word/affix
@@ -160,7 +161,7 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				return nil, fmt.Errorf("ICONV stanza had %d fields, expected 2", len(parts))
 			}
 			// we have 3
-			aff.IconvReplacements = append(aff.IconvReplacements, [2]string{parts[1], parts[2]})
+			aff.IconvReplacements = append(aff.IconvReplacements, parts[1], parts[2])
 		case "REP":
 			// if only 2 fields, then its the first stanza that just provides a count
 			//  we don't care, as we dynamically allocate
@@ -181,6 +182,17 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %q expected number", parts[1])
 			}
 			aff.CompoundMin = int(val)
+
+		case "COMPOUNDRULE":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDRULE stanza had %d fields, expected 2", len(parts))
+			}
+			val, err := strconv.ParseInt(parts[1], 10, 64)
+			if err == nil {
+				aff.CompoundRule = make([]string, 0, val)
+			} else {
+				aff.CompoundRule = append(aff.CompoundRule, parts[1])
+			}
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))

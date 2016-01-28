@@ -44,12 +44,11 @@ COMPOUNDMIN 2
 		t.Errorf("COMPOUNDMIN stanza not processed, want 2 got %d", aff.CompoundMin)
 	}
 
-	if len(aff.IconvReplacements) != 1 {
+	if len(aff.IconvReplacements) != 2 {
 		t.Errorf("Didn't get ICONV replacement")
 	} else {
-		pair := aff.IconvReplacements[0]
-		if pair[0] != "a" || pair[1] != "b" {
-			t.Errorf("Replacement isnt a->b, got %v", pair)
+		if aff.IconvReplacements[0] != "a" || aff.IconvReplacements[1] != "b" {
+			t.Errorf("Replacement isnt a->b, got %v", aff.IconvReplacements)
 		}
 	}
 

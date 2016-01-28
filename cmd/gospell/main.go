@@ -14,20 +14,42 @@ package main
 */
 
 import (
+	"bytes"
 	"flag"
+	"github.com/client9/gospell"
+	"github.com/client9/plaintext"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
-
-	"github.com/client9/gospell"
-	"github.com/client9/plaintext"
 )
 
 var (
-	stdout *log.Logger // see below in init()
+	stdout      *log.Logger // see below in init()
+	defaultLog  *template.Template
+	defaultWord *template.Template
 )
+
+const (
+	defaultLogTmpl  = `{{ .Filename }}:{{ js .Original }}`
+	defaultWordTmpl = `{{ .Original }}`
+)
+
+func init() {
+	// we see it so it doesn't use a prefix or include a time stamp.
+	stdout = log.New(os.Stdout, "", 0)
+	defaultLog = template.Must(template.New("defaultLog").Parse(defaultLogTmpl))
+	defaultWord = template.Must(template.New("defaultWord").Parse(defaultWordTmpl))
+}
+
+type diff struct {
+	Filename string
+	Path     string
+	Original string
+}
 
 // This needs auditing as I believe it is wrong
 func enURLChar(c rune) bool {
@@ -72,14 +94,18 @@ func removeURL(s string) string {
 	}
 }
 
-func init() {
-	// we see it so it doesn't use a prefix or include a time stamp.
-	stdout = log.New(os.Stdout, "", 0)
-}
-
 func main() {
+	format := flag.String("f", "", "use Golang template for log message")
 	flag.Parse()
 	args := flag.Args()
+
+	if len(*format) > 0 {
+		t, err := template.New("custom").Parse(*format)
+		if err != nil {
+			log.Fatalf("Unable to compile log format: %s", err)
+		}
+		defaultLog = t
+	}
 
 	aff := "/usr/local/share/hunspell/en_US.aff"
 	dic := "/usr/local/share/hunspell/en_US.dic"
@@ -95,7 +121,7 @@ func main() {
 	}
 
 	splitter := gospell.NewSplitter(h.WordChars)
-
+	//splitter := gospell.NewDelimiterSplitter()
 	// stdin support
 	if len(args) == 0 {
 		raw, err := ioutil.ReadAll(os.Stdin)
@@ -107,12 +133,28 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
-		rawstring := string(md.Text(raw))
+
+		// extract plain text
+		raw = md.Text(raw)
+
+		// do character conversion "smart quotes" to quotes, etc
+		// as specified in the Affix file
+		rawstring := h.InputConversion(raw)
+
+		// zap URLS
 		s := removeURL(rawstring)
+
+		// now get words
 		words := splitter.Split(s)
 		for _, word := range words {
 			if known := h.Spell(word); !known {
-				stdout.Printf("%s\n", word)
+				var output bytes.Buffer
+				defaultLog.Execute(&output, diff{
+					Filename: "stdin",
+					Original: word,
+				})
+				// goroutine-safe print to os.Stdout
+				stdout.Println(output.String())
 			}
 		}
 	}
@@ -131,8 +173,14 @@ func main() {
 		words := splitter.Split(s)
 		for _, word := range words {
 			if known := h.Spell(word); !known {
-				stdout.Printf("%s\n", word)
-				//stdout.Printf("%s:%d unknown %q", arg, linenum+1, word)
+				var output bytes.Buffer
+				defaultLog.Execute(&output, diff{
+					Filename: filepath.Base(arg),
+					Path:     arg,
+					Original: word,
+				})
+				// goroutine-safe print to os.Stdout
+				stdout.Println(output.String())
 			}
 		}
 	}
