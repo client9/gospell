@@ -17,12 +17,14 @@ https://github.com/hunspell
 
 The world of spelling dictionaries is surprisingly complicated, as
 "lists of words" are frequently proprietary and with conflicting
-software licenses.  Fortunately, [Kevin Atkinson](http://www.kevina.org) maintains many open source lists via
-the [SCOWL](http://wordlist.aspell.net) project.  The github is
-locations at https://github.com/kevina/wordlist
+software licenses.  Fortunately, [Kevin Atkinson](http://www.kevina.org)
+maintains many open source lists via
+the [SCOWL](http://wordlist.aspell.net) project.  The source code and
+raw lists are available on
+[GitHub](https://github.com/kevina/wordlist)
 
-These lists are then packaged up and reused by various other projects
-below.
+These lists are then packaged up and reused by various other projects.
+Some of the more notable ones are listed below.
 
 #### Open Office
 
