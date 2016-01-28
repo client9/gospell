@@ -21,7 +21,7 @@ software licenses.  Fortunately, [Kevin Atkinson](http://www.kevina.org)
 maintains many open source lists via
 the [SCOWL](http://wordlist.aspell.net) project.  The source code and
 raw lists are available on
-[GitHub](https://github.com/kevina/wordlist)
+[GitHub kevina/wordlist](https://github.com/kevina/wordlist)
 
 These lists are then packaged up and reused by various other projects.
 Some of the more notable ones are listed below.
