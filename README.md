@@ -15,8 +15,26 @@ https://github.com/hunspell
 
 ### Where can I get dictionaries?
 
+The world of spelling dictionaries is surprisingly complicated, as
+"lists of words" are frequently proprietary and with conflicting
+software licenses.  Fortunately, @kevina many open source lists and
+maintains the [SCOWL](http://wordlist.aspell.net) project and the
+github repo at https://github.com/kevina/wordlist
+
+These lists are then packaged up and reused by various other projects
+below.
+
+#### Open Office
+
+http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
+
+The downloaded file has a `.oxt` extenion but it's a `tar` file.  extract the files using
+
+``
+#### Chromium
+
 The Chrome/Chromium browser uses Hunspell and it's source tree
-contains various up-to-date dictionaries.  You can view them at
+contains various up-to-date dictionaries, some with additional words.  You can view them at
 [chromium.googlesource.com](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
 and you can check them out locally via
 
