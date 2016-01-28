@@ -28,9 +28,14 @@ below.
 
 http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
 
-The downloaded file has a `.oxt` extenion but it's a `tar` file.  extract the files using
+The downloaded file has a `.oxt` extenion but it's a `tar` file.  Extract the files using
 
-``
+```
+mkdir dict-en
+cd dict-en
+tar -xzf ../dict-en.oxt
+```
+
 #### Chromium
 
 The Chrome/Chromium browser uses Hunspell and it's source tree
