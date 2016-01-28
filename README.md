@@ -15,18 +15,30 @@ NOTE: This is not affiliated with Hunspell although if they wanted
 merge it in as an official project, I'd be happy to donate the code
 (although it's in no shape to do so right now).
 
-### Where can I get dictionaries?
+### Where can I get English dictionaries?
+
+
 
 The world of spelling dictionaries is surprisingly complicated, as
 "lists of words" are frequently proprietary and with conflicting
-software licenses.  Fortunately, [Kevin Atkinson](http://www.kevina.org)
+software licenses.
+
+
+### Kevin Atkinson
+
+[Kevin Atkinson](http://www.kevina.org)
 maintains many open source lists via
 the [SCOWL](http://wordlist.aspell.net) project.  The source code and
 raw lists are available on
 [GitHub kevina/wordlist](https://github.com/kevina/wordlist)
 
-These lists are then packaged up and reused by various other projects.
-Some of the more notable ones are listed below.
+
+#### Marco A.G.Pinto
+
+Marco maintains the released dictionaries for Firefox and Apache Open
+Office.  The word lists appears to be actively updated.
+
+https://github.com/marcoagpinto/aoo-mozilla-en-dict
 
 #### Open Office
 
