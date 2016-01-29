@@ -128,11 +128,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
-		raw = plaintext.StripTemplate(raw)
 		md, err := plaintext.ExtractorByFilename("stdin")
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
+
+		// remove any golang templates
+		raw = plaintext.StripTemplate(raw)
 
 		// extract plain text
 		raw = md.Text(raw)
@@ -147,6 +149,8 @@ func main() {
 		// now get words
 		words := splitter.Split(s)
 		for _, word := range words {
+			// HACK
+			word = strings.Trim(word, "'")
 			if known := h.Spell(word); !known {
 				var output bytes.Buffer
 				defaultLog.Execute(&output, diff{
@@ -167,11 +171,22 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
+
+		// remove any golang template stuff laying around
 		raw = plaintext.StripTemplate(raw)
-		rawstring := string(md.Text(raw))
+
+		// extract plain text
+		raw = md.Text(raw)
+
+		// do character conversion "smart quotes" to quotes, etc
+		// as specified in the Affix file
+		rawstring := h.InputConversion(raw)
+
+		// zap URLS
 		s := removeURL(rawstring)
 		words := splitter.Split(s)
 		for _, word := range words {
+			word = strings.Trim(word, "'")
 			if known := h.Spell(word); !known {
 				var output bytes.Buffer
 				defaultLog.Execute(&output, diff{
