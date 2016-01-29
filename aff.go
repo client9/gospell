@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -63,6 +64,7 @@ type AFFFile struct {
 	CompoundMin       int
 	CompoundOnly      string
 	CompoundRule      []string
+	compoundMap       map[rune][]string
 }
 
 // Expand expands a word/affix
@@ -80,6 +82,28 @@ func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
 	}
 	// safe
 	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
+
+	// check to see if any of the flags are in the
+	// "compound only".  If so then nothing to add
+	compoundOnly := false
+	for _, key := range keyString {
+		if strings.IndexRune(a.CompoundOnly, key) != -1 {
+			compoundOnly = true
+			continue
+		}
+		if _, ok := a.compoundMap[key]; !ok {
+			// the isn't a compound flag
+			continue
+		}
+		// is a compound flag
+		a.compoundMap[key] = append(a.compoundMap[key], word)
+	}
+
+	if compoundOnly {
+		log.Printf("GOT COMPOUND ONLY FOR %s %v", word, out)
+		return out, nil
+	}
+
 	out = append(out, word)
 	prefixes := make([]Affix, 0, 5)
 	suffixes := make([]Affix, 0, 5)
@@ -135,6 +159,7 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 	aff := AFFFile{
 		Flag:        "ASCII",
 		AffixMap:    make(map[rune]Affix),
+		compoundMap: make(map[rune][]string),
 		CompoundMin: 3, // default in Hunspell
 	}
 	scanner := bufio.NewScanner(file)
@@ -197,6 +222,11 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				aff.CompoundRule = make([]string, 0, val)
 			} else {
 				aff.CompoundRule = append(aff.CompoundRule, parts[1])
+				for _, char := range parts[1] {
+					if _, ok := aff.compoundMap[char]; !ok {
+						aff.compoundMap[char] = []string{}
+					}
+				}
 			}
 		case "WORDCHARS":
 			if len(parts) != 2 {

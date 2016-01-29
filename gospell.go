@@ -4,15 +4,18 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 // GoSpell is main struct
 type GoSpell struct {
-	WordChars string              // from AFF file
-	ireplacer *strings.Replacer   // input conversion
+	WordChars string            // from AFF file
+	ireplacer *strings.Replacer // input conversion
+	Compounds []*regexp.Regexp
 	Dict      map[string]struct{} // likely will contain some value later
 }
 
@@ -31,7 +34,16 @@ func (s *GoSpell) InputConversion(raw []byte) string {
 func (s *GoSpell) Spell(word string) bool {
 	//log.Printf("Checking %s", word)
 	_, ok := s.Dict[word]
-	return ok
+	if ok {
+		return true
+	}
+	// check compounds
+	for _, pat := range s.Compounds {
+		if pat.MatchString(word) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewGoSpellReader creates a speller from io.Readers for aff and dic
@@ -52,9 +64,11 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	gs := GoSpell{
 		WordChars: affix.WordChars,
 		Dict:      make(map[string]struct{}, i*5),
+		Compounds: make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
 	words := []string{}
@@ -67,39 +81,54 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			continue
 		}
 
-		// this is about 100ms faster, than the full case iteration
-		// below
-		if false {
-			for _, word := range words {
-				gs.Dict[word] = struct{}{}
-			}
+		if len(words) == 0 {
+			log.Printf("No words for %s", line)
+			continue
 		}
 
-		if true {
-			style := CaseStyle(words[0])
-			for _, word := range words {
-				switch style {
-				case AllLower:
-					gs.Dict[word] = struct{}{}
-					gs.Dict[strings.Title(word)] = struct{}{}
-					gs.Dict[strings.ToUpper(word)] = struct{}{}
-				case AllUpper:
-					gs.Dict[strings.ToUpper(word)] = struct{}{}
-				case Title:
-					gs.Dict[word] = struct{}{}
-					gs.Dict[strings.ToUpper(word)] = struct{}{}
-				case Mixed:
-					gs.Dict[word] = struct{}{}
-					gs.Dict[strings.ToUpper(word)] = struct{}{}
-				default:
-					gs.Dict[word] = struct{}{}
-				}
+		style := CaseStyle(words[0])
+		for _, word := range words {
+			switch style {
+			case AllLower:
+				gs.Dict[word] = struct{}{}
+				gs.Dict[strings.Title(word)] = struct{}{}
+				gs.Dict[strings.ToUpper(word)] = struct{}{}
+			case AllUpper:
+				gs.Dict[strings.ToUpper(word)] = struct{}{}
+			case Title:
+				gs.Dict[word] = struct{}{}
+				gs.Dict[strings.ToUpper(word)] = struct{}{}
+			case Mixed:
+				gs.Dict[word] = struct{}{}
+				gs.Dict[strings.ToUpper(word)] = struct{}{}
+			default:
+				gs.Dict[word] = struct{}{}
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+
+	for _, compoundRule := range affix.CompoundRule {
+		pattern := "^"
+		for _, key := range compoundRule {
+			switch key {
+			case '(', ')', '+', '?', '*':
+				pattern = pattern + string(key)
+			default:
+				groups := affix.compoundMap[key]
+				pattern = pattern + "(" + strings.Join(groups, "|") + ")"
+			}
+			pat, err := regexp.Compile(pattern + "$")
+			if err != nil {
+				log.Printf("REGEXP FAIL= %q %s", pattern, err)
+			} else {
+				//log.Printf("REGEXP ok %s", pattern)
+				gs.Compounds = append(gs.Compounds, pat)
+			}
+		}
 	}
 
 	if len(affix.IconvReplacements) > 0 {

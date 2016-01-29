@@ -121,7 +121,7 @@ func main() {
 	}
 
 	splitter := gospell.NewSplitter(h.WordChars)
-	//splitter := gospell.NewDelimiterSplitter()
+
 	// stdin support
 	if len(args) == 0 {
 		raw, err := ioutil.ReadAll(os.Stdin)
