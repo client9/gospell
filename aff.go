@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -100,7 +99,6 @@ func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
 	}
 
 	if compoundOnly {
-		log.Printf("GOT COMPOUND ONLY FOR %s %v", word, out)
 		return out, nil
 	}
 

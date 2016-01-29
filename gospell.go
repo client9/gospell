@@ -82,7 +82,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		}
 
 		if len(words) == 0 {
-			log.Printf("No words for %s", line)
+			//log.Printf("No words for %s", line)
 			continue
 		}
 
