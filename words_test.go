@@ -26,3 +26,31 @@ func TestSplitter(t *testing.T) {
 		}
 	}
 }
+
+func TestIsNumber(t *testing.T) {
+
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"0", true},
+		{"00", true},
+		{"100", true},
+		{"1.", true},
+		{"1.0.", true},
+		{"1.0.0.", true},
+		{"1,0", true},
+		{"1-0", true},
+		{"1..0", false},
+		{"1--0", false},
+		{"1..0", false},
+		{"1-.0", false},
+		{"-1.0", false},
+		{",1", false},
+	}
+	for _, tt := range cases {
+		if isNumber(tt.word) != tt.want {
+			t.Errorf("%q is not %v", tt.word, tt.want)
+		}
+	}
+}

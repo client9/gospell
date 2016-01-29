@@ -230,6 +230,9 @@ WORDCHARS 0123456789
 		{"17th", true},
 		{"18th", true},
 		{"19th", true},
+		{"111", true},
+		{"111st", false},
+		{"111th", true},
 	}
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {

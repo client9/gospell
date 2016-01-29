@@ -1,9 +1,12 @@
 package gospell
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 )
+
+var numberRegexp = regexp.MustCompile("^([0-9]+[.,-]?)+$")
 
 // Splitter splits a text into words
 // Highly likely this implementation will change so we are encapsulating.
@@ -28,4 +31,8 @@ func NewSplitter(chars string) *Splitter {
 		return !unicode.IsLetter(c) && -1 == strings.IndexRune(chars, c)
 	})
 	return &s
+}
+
+func isNumber(s string) bool {
+	return numberRegexp.MatchString(s)
 }

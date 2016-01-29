@@ -37,6 +37,9 @@ func (s *GoSpell) Spell(word string) bool {
 	if ok {
 		return true
 	}
+	if isNumber(word) {
+		return true
+	}
 	// check compounds
 	for _, pat := range s.Compounds {
 		if pat.MatchString(word) {
@@ -121,14 +124,16 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 				groups := affix.compoundMap[key]
 				pattern = pattern + "(" + strings.Join(groups, "|") + ")"
 			}
-			pat, err := regexp.Compile(pattern + "$")
-			if err != nil {
-				log.Printf("REGEXP FAIL= %q %s", pattern, err)
-			} else {
-				//log.Printf("REGEXP ok %s", pattern)
-				gs.Compounds = append(gs.Compounds, pat)
-			}
 		}
+		pattern = pattern + "$"
+		pat, err := regexp.Compile(pattern)
+		if err != nil {
+			log.Printf("REGEXP FAIL= %q %s", pattern, err)
+		} else {
+			log.Printf("REGEXP ok %s", pattern)
+			gs.Compounds = append(gs.Compounds, pat)
+		}
+
 	}
 
 	if len(affix.IconvReplacements) > 0 {

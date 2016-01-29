@@ -96,8 +96,13 @@ func removeURL(s string) string {
 
 func main() {
 	format := flag.String("f", "", "use Golang template for log message")
+	listOnly := flag.Bool("l", false, "only print unknown word")
 	flag.Parse()
 	args := flag.Args()
+
+	if *listOnly {
+		defaultLog = defaultWord
+	}
 
 	if len(*format) > 0 {
 		t, err := template.New("custom").Parse(*format)
