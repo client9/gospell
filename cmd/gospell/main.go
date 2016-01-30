@@ -34,7 +34,7 @@ var (
 )
 
 const (
-	defaultLogTmpl  = `{{ .Filename }}:{{ js .Original }}`
+	defaultLogTmpl  = `{{ .Filename }}:{{ .LineNum }}:{{ js .Original }}`
 	defaultWordTmpl = `{{ .Original }}`
 )
 
@@ -49,6 +49,7 @@ type diff struct {
 	Filename string
 	Path     string
 	Original string
+	LineNum  int
 }
 
 // This needs auditing as I believe it is wrong
@@ -94,6 +95,45 @@ func removeURL(s string) string {
 	}
 }
 
+func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
+	md, err := plaintext.ExtractorByFilename(fullpath)
+	if err != nil {
+		log.Fatalf("Unable to create parser: %s", err)
+	}
+	// remove any golang templates
+	raw = plaintext.StripTemplate(raw)
+
+	// extract plain text
+	raw = md.Text(raw)
+
+	// do character conversion "smart quotes" to quotes, etc
+	// as specified in the Affix file
+	rawstring := gs.InputConversion(raw)
+
+	// zap URLS
+	s := removeURL(rawstring)
+
+	for linenum, line := range strings.Split(s, "\n") {
+		// now get words
+		words := gs.Split(line)
+		for _, word := range words {
+			// HACK
+			word = strings.Trim(word, "'")
+			if known := gs.Spell(word); !known {
+				var output bytes.Buffer
+				defaultLog.Execute(&output, diff{
+					Filename: filepath.Base(fullpath),
+					Path:     fullpath,
+					LineNum:  linenum + 1,
+					Original: word,
+				})
+				// goroutine-safe print to os.Stdout
+				stdout.Println(output.String())
+			}
+		}
+	}
+}
+
 func main() {
 	format := flag.String("f", "", "use Golang template for log message")
 	listOnly := flag.Bool("l", false, "only print unknown word")
@@ -125,83 +165,19 @@ func main() {
 		log.Fatalf("%s", err)
 	}
 
-	splitter := gospell.NewSplitter(h.WordChars)
-
 	// stdin support
 	if len(args) == 0 {
 		raw, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
-		md, err := plaintext.ExtractorByFilename("stdin")
-		if err != nil {
-			log.Fatalf("Unable to create parser: %s", err)
-		}
-
-		// remove any golang templates
-		raw = plaintext.StripTemplate(raw)
-
-		// extract plain text
-		raw = md.Text(raw)
-
-		// do character conversion "smart quotes" to quotes, etc
-		// as specified in the Affix file
-		rawstring := h.InputConversion(raw)
-
-		// zap URLS
-		s := removeURL(rawstring)
-
-		// now get words
-		words := splitter.Split(s)
-		for _, word := range words {
-			// HACK
-			word = strings.Trim(word, "'")
-			if known := h.Spell(word); !known {
-				var output bytes.Buffer
-				defaultLog.Execute(&output, diff{
-					Filename: "stdin",
-					Original: word,
-				})
-				// goroutine-safe print to os.Stdout
-				stdout.Println(output.String())
-			}
-		}
+		process(h, "stdin", raw)
 	}
 	for _, arg := range args {
 		raw, err := ioutil.ReadFile(arg)
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		md, err := plaintext.ExtractorByFilename(arg)
-		if err != nil {
-			log.Fatalf("Unable to create parser: %s", err)
-		}
-
-		// remove any golang template stuff laying around
-		raw = plaintext.StripTemplate(raw)
-
-		// extract plain text
-		raw = md.Text(raw)
-
-		// do character conversion "smart quotes" to quotes, etc
-		// as specified in the Affix file
-		rawstring := h.InputConversion(raw)
-
-		// zap URLS
-		s := removeURL(rawstring)
-		words := splitter.Split(s)
-		for _, word := range words {
-			word = strings.Trim(word, "'")
-			if known := h.Spell(word); !known {
-				var output bytes.Buffer
-				defaultLog.Execute(&output, diff{
-					Filename: filepath.Base(arg),
-					Path:     arg,
-					Original: word,
-				})
-				// goroutine-safe print to os.Stdout
-				stdout.Println(output.String())
-			}
-		}
+		process(h, arg, raw)
 	}
 }

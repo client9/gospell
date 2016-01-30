@@ -17,6 +17,7 @@ type GoSpell struct {
 	ireplacer *strings.Replacer // input conversion
 	Compounds []*regexp.Regexp
 	Dict      map[string]struct{} // likely will contain some value later
+	splitter  *Splitter
 }
 
 // InputConversion does any character substitution before checking
@@ -27,6 +28,11 @@ func (s *GoSpell) InputConversion(raw []byte) string {
 		return sraw
 	}
 	return s.ireplacer.Replace(sraw)
+}
+
+// Split a text into Words
+func (s *GoSpell) Split(text string) []string {
+	return s.splitter.Split(text)
 }
 
 // Spell checks to see if a given word is in the internal dictionaries
@@ -72,6 +78,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		WordChars: affix.WordChars,
 		Dict:      make(map[string]struct{}, i*5),
 		Compounds: make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		splitter:  NewSplitter(affix.WordChars),
 	}
 
 	words := []string{}
