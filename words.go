@@ -12,6 +12,10 @@ var numberRegexp = regexp.MustCompile("^([0-9]+[.,-]?)+$")
 // number form with units, e.g. 123ms, 12in  1ft
 var numberUnitsRegexp = regexp.MustCompile("^[0-9]+[a-zA-Z]+$")
 
+// 0x12FF or 0x1B or x12FF
+// does anyone use 0XFF ??
+var numberHexRegexp = regexp.MustCompile("^0?[x][0-9A-Fa-f]+$")
+
 // Splitter splits a text into words
 // Highly likely this implementation will change so we are encapsulating.
 type Splitter struct {
@@ -58,4 +62,8 @@ func isNumberUnits(s string) string {
 		return s[idx:]
 	}
 	panic("assertion failed")
+}
+
+func isNumberHex(s string) bool {
+	return numberHexRegexp.MatchString(s)
 }

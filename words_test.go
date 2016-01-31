@@ -72,3 +72,28 @@ func TestIsNumberUnits(t *testing.T) {
 		}
 	}
 }
+
+func TestIsNumberHex(t *testing.T) {
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"0", false},
+		{"0x", false},
+		{"x", false},
+		{"0x0", true},
+		{"0xF", true},
+		{"0xf", true},
+		{"0xFF", true},
+		{"0x12", true},
+		{"x12", true},
+		{"x86", true},
+		{"xabcdef", true},
+		{"0xZZ", false},
+	}
+	for _, tt := range cases {
+		if isNumberHex(tt.word) != tt.want {
+			t.Errorf("%q is not %v", tt.word, tt.want)
+		}
+	}
+}

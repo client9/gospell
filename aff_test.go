@@ -283,6 +283,8 @@ GB
 		{"1", true},
 		{"100GB", true},
 		{"100mi", false},
+		{"0xFF", true},
+		{"0x12ff", true},
 	}
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {

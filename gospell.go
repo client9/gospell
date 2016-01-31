@@ -46,6 +46,9 @@ func (s *GoSpell) Spell(word string) bool {
 	if isNumber(word) {
 		return true
 	}
+	if isNumberHex(word) {
+		return true
+	}
 	// check compounds
 	for _, pat := range s.Compounds {
 		if pat.MatchString(word) {
