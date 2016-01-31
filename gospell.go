@@ -13,10 +13,11 @@ import (
 
 // GoSpell is main struct
 type GoSpell struct {
-	WordChars string            // from AFF file
+	Config DictConfig
+	Dict   map[string]struct{} // likely will contain some value later
+
 	ireplacer *strings.Replacer // input conversion
-	Compounds []*regexp.Regexp
-	Dict      map[string]struct{} // likely will contain some value later
+	compounds []*regexp.Regexp
 	splitter  *Splitter
 }
 
@@ -35,6 +36,11 @@ func (s *GoSpell) Split(text string) []string {
 	return s.splitter.Split(text)
 }
 
+// AddWordRaw adds a single word to the internal dictionary with out modifications
+func (s *GoSpell) AddWordRaw(word string) {
+	s.Dict[word] = struct{}{}
+}
+
 // Spell checks to see if a given word is in the internal dictionaries
 // TODO: add multiple dictionaries
 func (s *GoSpell) Spell(word string) bool {
@@ -50,7 +56,7 @@ func (s *GoSpell) Spell(word string) bool {
 		return true
 	}
 	// check compounds
-	for _, pat := range s.Compounds {
+	for _, pat := range s.compounds {
 		if pat.MatchString(word) {
 			return true
 		}
@@ -71,7 +77,7 @@ func (s *GoSpell) Spell(word string) bool {
 // NewGoSpellReader creates a speller from io.Readers for aff and dic
 // Hunspell files
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
-	affix, err := NewAFF(aff)
+	affix, err := NewDictConfig(aff)
 	if err != nil {
 		return nil, err
 	}
@@ -88,9 +94,8 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	gs := GoSpell{
-		WordChars: affix.WordChars,
 		Dict:      make(map[string]struct{}, i*5),
-		Compounds: make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		compounds: make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 		splitter:  NewSplitter(affix.WordChars),
 	}
 
@@ -149,7 +154,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			log.Printf("REGEXP FAIL= %q %s", pattern, err)
 		} else {
 			//log.Printf("REGEXP ok %s", pattern)
-			gs.Compounds = append(gs.Compounds, pat)
+			gs.compounds = append(gs.compounds, pat)
 		}
 
 	}

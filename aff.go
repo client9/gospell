@@ -28,7 +28,7 @@ type Affix struct {
 // Expand provides all variations of a given word based on this affix rule
 func (a Affix) Expand(word string, out []string) []string {
 	for _, r := range a.Rules {
-		if r.Matcher != nil && !r.Matcher.MatchString(word) {
+		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
 		}
 		if a.Type == Prefix {
@@ -49,14 +49,16 @@ func (a Affix) Expand(word string, out []string) []string {
 type Rule struct {
 	Strip     string
 	AffixText string         // suffix or prefix text to add
-	Matcher   *regexp.Regexp // matcher to see if this rule applies or not
+	Pattern   string         // original matching pattern from AFF file
+	matcher   *regexp.Regexp // matcher to see if this rule applies or not
 }
 
-// AFFFile is a partial representation of a Hunspell AFF file.
-type AFFFile struct {
+// DictConfig is a partial representation of a Hunspell AFF (Affix) file.
+type DictConfig struct {
 	Flag              string
 	TryChars          string
 	WordChars         string
+	NoSuggestFlag     rune
 	IconvReplacements []string
 	Replacements      [][2]string
 	AffixMap          map[rune]Affix
@@ -66,8 +68,9 @@ type AFFFile struct {
 	compoundMap       map[rune][]string
 }
 
-// Expand expands a word/affix
-func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
+// Expand expands a word/affix using dictionary/affix rules
+//  This also supports compoundrule flags
+func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 	out = out[:0]
 	idx := strings.Index(wordAffix, "/")
 
@@ -110,8 +113,16 @@ func (a AFFFile) Expand(wordAffix string, out []string) ([]string, error) {
 		// then iterate over that
 		af, ok := a.AffixMap[key]
 		if !ok {
-			continue
-			//return nil, fmt.Errorf("unable to find affix key %v", key)
+			// is it compound flag?
+			if _, ok := a.compoundMap[key]; ok {
+				continue
+			}
+			// is it a nosuggest?
+			if key == a.NoSuggestFlag {
+				continue
+			}
+			// no idea
+			return nil, fmt.Errorf("unable to find affix key %v", key)
 		}
 		if !af.CrossProduct {
 			out = af.Expand(word, out)
@@ -152,9 +163,9 @@ func isCrossProduct(val string) (bool, error) {
 	return false, fmt.Errorf("CrossProduct is not Y or N: got %q", val)
 }
 
-// NewAFF reads an Hunspell AFF file
-func NewAFF(file io.Reader) (*AFFFile, error) {
-	aff := AFFFile{
+// NewDictConfig reads an Hunspell AFF file
+func NewDictConfig(file io.Reader) (*DictConfig, error) {
+	aff := DictConfig{
 		Flag:        "ASCII",
 		AffixMap:    make(map[rune]Affix),
 		compoundMap: make(map[rune][]string),
@@ -226,6 +237,16 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 					}
 				}
 			}
+		case "NOSUGGEST":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("NOSUGGEST stanza had %d fields, expected 2", len(parts))
+			}
+			// should use runes or parse correctly
+			chars := []rune(parts[1])
+			if len(chars) != 1 {
+				return nil, fmt.Errorf("NOSUGGEST stanza had more than one flag: %q", parts[1])
+			}
+			aff.NoSuggestFlag = chars[0]
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))
@@ -287,7 +308,8 @@ func NewAFF(file io.Reader) (*AFFFile, error) {
 				a.Rules = append(a.Rules, Rule{
 					Strip:     strip,
 					AffixText: parts[3],
-					Matcher:   matcher,
+					Pattern:   parts[4],
+					matcher:   matcher,
 				})
 				aff.AffixMap[flag] = a
 			default:

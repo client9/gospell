@@ -27,7 +27,7 @@ REP 1
 REP a ei
 COMPOUNDMIN 2
 `
-	aff, err := NewAFF(strings.NewReader(sample))
+	aff, err := NewDictConfig(strings.NewReader(sample))
 	if err != nil {
 		t.Fatalf("Unable to parse sample: %s", err)
 	}
@@ -118,7 +118,7 @@ SFX B Y 2
 SFX B 0 ed [^y]
 SFX B y ied y
 `
-	aff, err := NewAFF(strings.NewReader(sample))
+	aff, err := NewDictConfig(strings.NewReader(sample))
 	if err != nil {
 		t.Fatalf("Unable to parse sample: %s", err)
 	}
