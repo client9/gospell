@@ -244,11 +244,7 @@ WORDCHARS 0123456789
 func TestSpell(t *testing.T) {
 	sampleAff := `
 SET UTF-8
-TRY esianrtolcdugmphbyfvkwzESIANRTOLCDUGMPHBYFVKWZ'
-
-REP 2
-REP f ph
-REP ph f
+WORDCHARS 0123456789
 
 PFX A Y 1
 PFX A 0 re .
@@ -258,10 +254,11 @@ SFX B 0 ed [^y]
 SFX B y ied y
 `
 
-	sampleDic := `3
+	sampleDic := `4
 hello
 try/B
 work/AB
+GB
 `
 	aff := strings.NewReader(sampleAff)
 	dic := strings.NewReader(sampleDic)
@@ -282,6 +279,10 @@ work/AB
 		{"rework", true},
 		{"reworked", true},
 		{"junk", false},
+		{"100", true},
+		{"1", true},
+		{"100GB", true},
+		{"100mi", false},
 	}
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {

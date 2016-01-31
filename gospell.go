@@ -52,7 +52,17 @@ func (s *GoSpell) Spell(word string) bool {
 			return true
 		}
 	}
-	return false
+
+	// ok maybe a word with units? e.g. 100GB
+	units := isNumberUnits(word)
+	if units == "" {
+		// no, it's something else
+		return false
+	}
+
+	// dictionary appears to have list of units
+	_, ok = s.Dict[units]
+	return ok
 }
 
 // NewGoSpellReader creates a speller from io.Readers for aff and dic
@@ -137,7 +147,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		if err != nil {
 			log.Printf("REGEXP FAIL= %q %s", pattern, err)
 		} else {
-			log.Printf("REGEXP ok %s", pattern)
+			//log.Printf("REGEXP ok %s", pattern)
 			gs.Compounds = append(gs.Compounds, pat)
 		}
 
