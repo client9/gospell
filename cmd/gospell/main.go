@@ -31,11 +31,13 @@ var (
 	stdout      *log.Logger // see below in init()
 	defaultLog  *template.Template
 	defaultWord *template.Template
+	defaultLine *template.Template
 )
 
 const (
 	defaultLogTmpl  = `{{ .Filename }}:{{ .LineNum }}:{{ js .Original }}`
 	defaultWordTmpl = `{{ .Original }}`
+	defaultLineTmpl = `{{ .Line }}`
 )
 
 func init() {
@@ -43,12 +45,14 @@ func init() {
 	stdout = log.New(os.Stdout, "", 0)
 	defaultLog = template.Must(template.New("defaultLog").Parse(defaultLogTmpl))
 	defaultWord = template.Must(template.New("defaultWord").Parse(defaultWordTmpl))
+	defaultLine = template.Must(template.New("defaultLine").Parse(defaultLineTmpl))
 }
 
 type diff struct {
 	Filename string
 	Path     string
 	Original string
+	Line     string
 	LineNum  int
 }
 
@@ -124,6 +128,7 @@ func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 				defaultLog.Execute(&output, diff{
 					Filename: filepath.Base(fullpath),
 					Path:     fullpath,
+					Line:     line,
 					LineNum:  linenum + 1,
 					Original: word,
 				})
@@ -137,11 +142,16 @@ func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 func main() {
 	format := flag.String("f", "", "use Golang template for log message")
 	listOnly := flag.Bool("l", false, "only print unknown word")
+	lineOnly := flag.Bool("L", false, "print line with unknown word")
 	flag.Parse()
 	args := flag.Args()
 
 	if *listOnly {
 		defaultLog = defaultWord
+	}
+
+	if *lineOnly {
+		defaultLog = defaultLine
 	}
 
 	if len(*format) > 0 {
