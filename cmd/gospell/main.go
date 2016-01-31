@@ -141,6 +141,13 @@ func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 
 func main() {
 	format := flag.String("f", "", "use Golang template for log message")
+
+	// TODO based on OS (windows vs. linux)
+	dictPath := flag.String("path", ".:/usr/local/share/hunspell:/usr/share/hunspell", "Search path for dictionaries")
+
+	// TODO based on ENV settings
+	dicts := flag.String("d", "en_US", "dictionaries to load")
+
 	listOnly := flag.Bool("l", false, "only print unknown word")
 	lineOnly := flag.Bool("L", false, "print line with unknown word")
 	flag.Parse()
@@ -162,10 +169,28 @@ func main() {
 		defaultLog = t
 	}
 
-	aff := "/usr/local/share/hunspell/en_US.aff"
-	dic := "/usr/local/share/hunspell/en_US.dic"
+	affFile := ""
+	dicFile := ""
+	for _, base := range filepath.SplitList(*dictPath) {
+		affFile = filepath.Join(base, *dicts+".aff")
+		dicFile = filepath.Join(base, *dicts+".dic")
+		//log.Printf("Trying %s", affFile)
+		_, err1 := os.Stat(affFile)
+		_, err2 := os.Stat(dicFile)
+		if err1 == nil && err2 == nil {
+			break
+		}
+		affFile = ""
+		dicFile = ""
+	}
+
+	if affFile == "" {
+		log.Fatalf("Unable to load %s", *dicts)
+	}
+
+	log.Printf("Loading %s %s", affFile, dicFile)
 	timeStart := time.Now()
-	h, err := gospell.NewGoSpell(aff, dic)
+	h, err := gospell.NewGoSpell(affFile, dicFile)
 	timeEnd := time.Now()
 
 	// note: 10x too slow
