@@ -54,3 +54,21 @@ func TestIsNumber(t *testing.T) {
 		}
 	}
 }
+
+func TestIsNumberUnits(t *testing.T) {
+	cases := []struct {
+		word string
+		want string
+	}{
+		{"0", ""},
+		{"xxx", ""},
+		{"101a-b-c", ""},
+		{"10GB", "GB"},
+		{"1G", "G"},
+	}
+	for _, tt := range cases {
+		if isNumberUnits(tt.word) != tt.want {
+			t.Errorf("%q is not %v", tt.word, tt.want)
+		}
+	}
+}
