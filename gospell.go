@@ -99,9 +99,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		line := scanner.Text()
 		words, err = affix.Expand(line, words)
 		if err != nil {
-			// Need to support Compound rules
-			//return nil, fmt.Errorf("Unable to process %q: %s", line, err)
-			continue
+			return nil, fmt.Errorf("Unable to process %q: %s", line, err)
 		}
 
 		if len(words) == 0 {
