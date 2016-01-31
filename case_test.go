@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestCaseStye(t *testing.T) {
+func TestCaseStyle(t *testing.T) {
 	cases := []struct {
 		word string
 		want WordCase
