@@ -35,7 +35,7 @@ var (
 )
 
 const (
-	defaultLogTmpl  = `{{ .Filename }}:{{ .LineNum }}:{{ js .Original }}`
+	defaultLogTmpl  = `{{ .Path }}:{{ .LineNum }}:{{ js .Original }}`
 	defaultWordTmpl = `{{ .Original }}`
 	defaultLineTmpl = `{{ .Line }}`
 )
