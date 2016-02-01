@@ -97,3 +97,24 @@ func TestIsNumberHex(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitCamelCase(t *testing.T) {
+	cases := []struct {
+		word string
+		want []string
+	}{
+		{"foo", nil}, // not camel case
+		{"Foo", nil}, // not camel case
+		{"FOO", nil}, // not camel case
+		{"FooBar", []string{"Foo", "Bar"}},
+		{"fooBar", []string{"foo", "Bar"}},
+		{"HTMLword", []string{"HTML", "word"}},
+		{"isURL", []string{"is", "URL"}},
+	}
+	for _, tt := range cases {
+		got := splitCamelCase(tt.word)
+		if !reflect.DeepEqual(tt.want, got) {
+			t.Errorf("%q : want %v got %v", tt.word, tt.want, got)
+		}
+	}
+}

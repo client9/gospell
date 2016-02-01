@@ -1,6 +1,7 @@
 package gospell
 
 import (
+	"log"
 	"regexp"
 	"strings"
 	"unicode"
@@ -15,6 +16,8 @@ var numberUnitsRegexp = regexp.MustCompile("^[0-9]+[a-zA-Z]+$")
 // 0x12FF or 0x1B or x12FF
 // does anyone use 0XFF ??
 var numberHexRegexp = regexp.MustCompile("^0?[x][0-9A-Fa-f]+$")
+
+var camelCaseRegexp1 = regexp.MustCompile("[A-Z]+")
 
 // Splitter splits a text into words
 // Highly likely this implementation will change so we are encapsulating.
@@ -66,4 +69,36 @@ func isNumberUnits(s string) string {
 
 func isNumberHex(s string) bool {
 	return numberHexRegexp.MatchString(s)
+}
+
+func splitCamelCase(s string) []string {
+	out := []string{}
+	caps := camelCaseRegexp1.FindAllStringIndex(s, -1)
+
+	// all lower case
+	if len(caps) == 0 {
+		return nil
+	}
+
+	// is only first character capitalized? or is the whole word capialized
+	if len(caps) == 1 && caps[0][0] == 0 && (caps[0][1] == 1 || caps[0][1] == len(s)) {
+		return nil
+	}
+	last := 0
+	for i := 0; i < len(caps); i++ {
+		if last != caps[i][0] {
+			out = append(out, s[last:caps[i][0]])
+			last = caps[i][0]
+		}
+		if caps[i][1]-caps[i][0] > 1 {
+			out = append(out, s[caps[i][0]:caps[i][1]])
+			last = caps[i][1]
+		}
+	}
+	if last < len(s) {
+		out = append(out, s[last:])
+	}
+	// is whole word cap
+	log.Printf("INDEX: %v", caps)
+	return out
 }
