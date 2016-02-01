@@ -62,6 +62,7 @@ type DictConfig struct {
 	IconvReplacements []string
 	Replacements      [][2]string
 	AffixMap          map[rune]Affix
+	CamelCase         int
 	CompoundMin       int
 	CompoundOnly      string
 	CompoundRule      []string

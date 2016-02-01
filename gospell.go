@@ -86,6 +86,15 @@ func (s *GoSpell) Spell(word string) bool {
 	if isNumberHex(word) {
 		return true
 	}
+
+	if isNumberBinary(word) {
+		return true
+	}
+
+	if isHash(word) {
+		return true
+	}
+
 	// check compounds
 	for _, pat := range s.compounds {
 		if pat.MatchString(word) {
@@ -95,14 +104,27 @@ func (s *GoSpell) Spell(word string) bool {
 
 	// ok maybe a word with units? e.g. 100GB
 	units := isNumberUnits(word)
-	if units == "" {
-		// no, it's something else
-		return false
+	if units != "" {
+		// dictionary appears to have list of units
+		if _, ok = s.Dict[units]; ok {
+			return true
+		}
 	}
 
-	// dictionary appears to have list of units
-	_, ok = s.Dict[units]
-	return ok
+	// if camelCase and each word e.g. "camel" "Case" is know
+	// then the word is ok!
+	if chunks := splitCamelCase(word); len(chunks) > 0 {
+		if false {
+			for _, chunk := range chunks {
+				if _, ok = s.Dict[chunk]; !ok {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	return false
 }
 
 // NewGoSpellReader creates a speller from io.Readers for aff and dic

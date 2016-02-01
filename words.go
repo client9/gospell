@@ -1,7 +1,6 @@
 package gospell
 
 import (
-	"log"
 	"regexp"
 	"strings"
 	"unicode"
@@ -17,7 +16,11 @@ var numberUnitsRegexp = regexp.MustCompile("^[0-9]+[a-zA-Z]+$")
 // does anyone use 0XFF ??
 var numberHexRegexp = regexp.MustCompile("^0?[x][0-9A-Fa-f]+$")
 
+var numberBinaryRegexp = regexp.MustCompile("^0[b][01]+$")
+
 var camelCaseRegexp1 = regexp.MustCompile("[A-Z]+")
+
+var shaHashRegexp = regexp.MustCompile("^[0-9a-z]{40}$")
 
 // Splitter splits a text into words
 // Highly likely this implementation will change so we are encapsulating.
@@ -48,6 +51,10 @@ func isNumber(s string) bool {
 	return numberRegexp.MatchString(s)
 }
 
+func isNumberBinary(s string) bool {
+	return numberBinaryRegexp.MatchString(s)
+}
+
 // is word in the form of a "number with units", e.g. "101ms", "3ft",
 // "5GB" if true, return the units, if not return empty string This is
 // highly English based and not sure how applicable it is to other
@@ -71,8 +78,18 @@ func isNumberHex(s string) bool {
 	return numberHexRegexp.MatchString(s)
 }
 
+func isHash(s string) bool {
+	return shaHashRegexp.MatchString(s)
+}
+
 func splitCamelCase(s string) []string {
 	out := []string{}
+
+	s = strings.Replace(s, "HTTP", "", -1)
+	s = strings.Replace(s, "HTML", "", -1)
+	s = strings.Replace(s, "URL", "", -1)
+	s = strings.Replace(s, "URI", "", -1)
+
 	caps := camelCaseRegexp1.FindAllStringIndex(s, -1)
 
 	// all lower case
@@ -98,7 +115,6 @@ func splitCamelCase(s string) []string {
 	if last < len(s) {
 		out = append(out, s[last:])
 	}
-	// is whole word cap
-	log.Printf("INDEX: %v", caps)
+
 	return out
 }
