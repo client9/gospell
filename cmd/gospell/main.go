@@ -102,7 +102,8 @@ func removeURL(s string) string {
 func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 	md, err := plaintext.ExtractorByFilename(fullpath)
 	if err != nil {
-		log.Fatalf("Unable to create parser: %s", err)
+		return
+		//log.Fatalf("Unable to create parser: %s", err)
 	}
 	// remove any golang templates
 	raw = plaintext.StripTemplate(raw)
@@ -226,6 +227,11 @@ func main() {
 		process(h, "stdin", raw)
 	}
 	for _, arg := range args {
+		// ignore directories
+		if f, err := os.Stat(arg); err != nil || f.IsDir() {
+			continue
+		}
+
 		raw, err := ioutil.ReadFile(arg)
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
