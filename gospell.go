@@ -36,9 +36,40 @@ func (s *GoSpell) Split(text string) []string {
 	return s.splitter.Split(text)
 }
 
-// AddWordRaw adds a single word to the internal dictionary with out modifications
-func (s *GoSpell) AddWordRaw(word string) {
+// AddWordRaw adds a single word to the internal dictionary without modifications
+// returns true if added
+// return false is already exists
+func (s *GoSpell) AddWordRaw(word string) bool {
+	_, ok := s.Dict[word]
+	if ok {
+		// hey already exists
+		return false
+	}
 	s.Dict[word] = struct{}{}
+	return true
+}
+
+// AddWordList adds basic word lists, just one word per line
+//  Assumed to be in UTF-8
+// TODO: hunspell compatible with "*" prefix for forbidden words
+// and affix support
+// returns list of duplicated words and/or error
+func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
+	var duplicates []string
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if len(line) == 0 || line == "#" {
+			continue
+		}
+		if !s.AddWordRaw(line) {
+			duplicates = append(duplicates, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return duplicates, err
+	}
+	return duplicates, nil
 }
 
 // Spell checks to see if a given word is in the internal dictionaries

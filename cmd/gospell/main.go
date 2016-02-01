@@ -141,6 +141,8 @@ func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 
 func main() {
 	format := flag.String("f", "", "use Golang template for log message")
+	listOnly := flag.Bool("l", false, "only print unknown word")
+	lineOnly := flag.Bool("L", false, "print line with unknown word")
 
 	// TODO based on OS (windows vs. linux)
 	dictPath := flag.String("path", ".:/usr/local/share/hunspell:/usr/share/hunspell", "Search path for dictionaries")
@@ -148,8 +150,8 @@ func main() {
 	// TODO based on ENV settings
 	dicts := flag.String("d", "en_US", "dictionaries to load")
 
-	listOnly := flag.Bool("l", false, "only print unknown word")
-	lineOnly := flag.Bool("L", false, "print line with unknown word")
+	personalDict := flag.String("p", "", "personal wordlist file")
+
 	flag.Parse()
 	args := flag.Args()
 
@@ -195,9 +197,24 @@ func main() {
 
 	// note: 10x too slow
 	log.Printf("Loaded in %v", timeEnd.Sub(timeStart))
-
 	if err != nil {
 		log.Fatalf("%s", err)
+	}
+
+	if *personalDict != "" {
+		raw, err := ioutil.ReadFile(*personalDict)
+		if err != nil {
+			log.Fatalf("Unable to load personal dictionary %s: %s", *personalDict, err)
+		}
+		duplicates, err := h.AddWordList(bytes.NewReader(raw))
+		if err != nil {
+			log.Fatalf("Unable to process personal dictionary %s: %s", *personalDict, err)
+		}
+		if len(duplicates) > 0 {
+			for _, word := range duplicates {
+				log.Printf("Word %q in personal dictionary already exists in main dictionary", word)
+			}
+		}
 	}
 
 	// stdin support
