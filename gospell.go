@@ -49,6 +49,21 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	return true
 }
 
+func (s *GoSpell) caseVariations(word string) []string {
+	switch CaseStyle(word) {
+	case AllLower:
+		return []string{word, strings.Title(word), strings.ToUpper(word)}
+	case AllUpper:
+		return []string{strings.ToUpper(word)}
+	case Title:
+		return []string{word, strings.ToUpper(word)}
+	case Mixed:
+		return []string{word, strings.ToUpper(word)}
+	default:
+		return []string{word}
+	}
+}
+
 // AddWordList adds basic word lists, just one word per line
 //  Assumed to be in UTF-8
 // TODO: hunspell compatible with "*" prefix for forbidden words
@@ -62,8 +77,10 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 		if len(line) == 0 || line == "#" {
 			continue
 		}
-		if !s.AddWordRaw(line) {
-			duplicates = append(duplicates, line)
+		for _, word := range s.caseVariations(line) {
+			if !s.AddWordRaw(word) {
+				duplicates = append(duplicates, word)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {

@@ -25,6 +25,12 @@ func CaseStyle(word string) WordCase {
 
 	// this iterates over RUNES not BYTES
 	for _, r := range word {
+		// ASCII apostrophe doesn't count
+		//  want words like "don't" to have
+		//  upper case forms when adding to dictionary
+		if r == 0x0027 {
+			continue
+		}
 		runeCount++
 		if unicode.IsLower(r) {
 			lowerCount++
