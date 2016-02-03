@@ -66,11 +66,7 @@ func caseVariations(word string) []string {
 		return []string{word, strings.ToUpper(word[0:1]) + word[1:], strings.ToUpper(word)}
 	case AllUpper:
 		return []string{strings.ToUpper(word)}
-	case Title:
-		return []string{word, strings.ToUpper(word)}
-	case Mixed:
-		return []string{word, strings.ToUpper(word)}
 	default:
-		return []string{word}
+		return []string{word, strings.ToUpper(word)}
 	}
 }
