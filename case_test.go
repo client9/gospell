@@ -10,6 +10,7 @@ func TestCaseStyle(t *testing.T) {
 		want WordCase
 	}{
 		{"lower", AllLower},
+		{"what's", AllLower},
 		{"UPPER", AllUpper},
 		{"Title", Title},
 		{"CamelCase", Mixed},
