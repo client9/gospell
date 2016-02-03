@@ -1,6 +1,7 @@
 package gospell
 
 import (
+	"strings"
 	"unicode"
 )
 
@@ -56,5 +57,20 @@ func CaseStyle(word string) WordCase {
 		return Title
 	default:
 		return Mixed
+	}
+}
+
+func caseVariations(word string) []string {
+	switch CaseStyle(word) {
+	case AllLower:
+		return []string{word, strings.ToUpper(word[0:1]) + word[1:], strings.ToUpper(word)}
+	case AllUpper:
+		return []string{strings.ToUpper(word)}
+	case Title:
+		return []string{word, strings.ToUpper(word)}
+	case Mixed:
+		return []string{word, strings.ToUpper(word)}
+	default:
+		return []string{word}
 	}
 }

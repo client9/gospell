@@ -49,21 +49,6 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	return true
 }
 
-func (s *GoSpell) caseVariations(word string) []string {
-	switch CaseStyle(word) {
-	case AllLower:
-		return []string{word, strings.Title(word), strings.ToUpper(word)}
-	case AllUpper:
-		return []string{strings.ToUpper(word)}
-	case Title:
-		return []string{word, strings.ToUpper(word)}
-	case Mixed:
-		return []string{word, strings.ToUpper(word)}
-	default:
-		return []string{word}
-	}
-}
-
 // AddWordList adds basic word lists, just one word per line
 //  Assumed to be in UTF-8
 // TODO: hunspell compatible with "*" prefix for forbidden words
@@ -77,7 +62,7 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 		if len(line) == 0 || line == "#" {
 			continue
 		}
-		for _, word := range s.caseVariations(line) {
+		for _, word := range caseVariations(line) {
 			if !s.AddWordRaw(word) {
 				duplicates = append(duplicates, word)
 			}
@@ -187,7 +172,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			switch style {
 			case AllLower:
 				gs.Dict[word] = struct{}{}
-				gs.Dict[strings.Title(word)] = struct{}{}
+				gs.Dict[strings.ToUpper(word[0:1])+word[1:]] = struct{}{}
 				gs.Dict[strings.ToUpper(word)] = struct{}{}
 			case AllUpper:
 				gs.Dict[strings.ToUpper(word)] = struct{}{}
