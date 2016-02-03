@@ -69,7 +69,7 @@ func CaseVariations(word string, style WordCase) []string {
 	switch style {
 	case AllLower:
 		return []string{word, strings.ToUpper(word[0:1]) + word[1:], strings.ToUpper(word)}
-	case AllUpper, Title:
+	case AllUpper:
 		return []string{strings.ToUpper(word)}
 	default:
 		return []string{word, strings.ToUpper(word)}
