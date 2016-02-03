@@ -60,11 +60,16 @@ func CaseStyle(word string) WordCase {
 	}
 }
 
-func caseVariations(word string) []string {
-	switch CaseStyle(word) {
+// CaseVariations returns
+// If AllUpper or First-Letter-Only is upcased: add the all upper case versoin
+// If AllLower, add the original, the title and upcase forms
+// If Mixed, return the original, and the all upcase form
+//
+func CaseVariations(word string, style WordCase) []string {
+	switch style {
 	case AllLower:
 		return []string{word, strings.ToUpper(word[0:1]) + word[1:], strings.ToUpper(word)}
-	case AllUpper:
+	case AllUpper, Title:
 		return []string{strings.ToUpper(word)}
 	default:
 		return []string{word, strings.ToUpper(word)}

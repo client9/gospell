@@ -62,7 +62,7 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 		if len(line) == 0 || line == "#" {
 			continue
 		}
-		for _, word := range caseVariations(line) {
+		for _, word := range CaseVariations(line, CaseStyle(line)) {
 			if !s.AddWordRaw(word) {
 				duplicates = append(duplicates, word)
 			}
@@ -169,21 +169,8 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 
 		style := CaseStyle(words[0])
 		for _, word := range words {
-			switch style {
-			case AllLower:
-				gs.Dict[word] = struct{}{}
-				gs.Dict[strings.ToUpper(word[0:1])+word[1:]] = struct{}{}
-				gs.Dict[strings.ToUpper(word)] = struct{}{}
-			case AllUpper:
-				gs.Dict[strings.ToUpper(word)] = struct{}{}
-			case Title:
-				gs.Dict[word] = struct{}{}
-				gs.Dict[strings.ToUpper(word)] = struct{}{}
-			case Mixed:
-				gs.Dict[word] = struct{}{}
-				gs.Dict[strings.ToUpper(word)] = struct{}{}
-			default:
-				gs.Dict[word] = struct{}{}
+			for _, wordform := range CaseVariations(word, style) {
+				gs.Dict[wordform] = struct{}{}
 			}
 		}
 	}

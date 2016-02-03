@@ -34,7 +34,7 @@ func TestCaseVariations(t *testing.T) {
 		{"that's", []string{"that's", "That's", "THAT'S"}},
 	}
 	for pos, tt := range cases {
-		got := caseVariations(tt.word)
+		got := CaseVariations(tt.word, CaseStyle(tt.word))
 		if !reflect.DeepEqual(tt.want, got) {
 			t.Errorf("Case %d %q: want %v got %v", pos, tt.word, tt.want, got)
 		}
