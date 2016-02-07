@@ -56,49 +56,6 @@ type diff struct {
 	LineNum  int
 }
 
-// This needs auditing as I believe it is wrong
-func enURLChar(c rune) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-' ||
-		c == '_' ||
-		c == '\\' ||
-		c == '.' ||
-		c == ':' ||
-		c == ';' ||
-		c == '/' ||
-		c == '~' ||
-		c == '%' ||
-		c == '*' ||
-		c == '$' ||
-		c == '[' ||
-		c == ']' ||
-		c == '?' ||
-		c == '#' ||
-		c == '!'
-}
-func enNotURLChar(c rune) bool {
-	return !enURLChar(c)
-}
-
-func removeURL(s string) string {
-	var idx int
-
-	for {
-		if idx = strings.Index(s, "http"); idx == -1 {
-			return s
-		}
-
-		news := s[:idx]
-		endx := strings.IndexFunc(s[idx:], enNotURLChar)
-		if endx != -1 {
-			news = news + " " + s[idx+endx:]
-		}
-		s = news
-	}
-}
-
 func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 	md, err := plaintext.ExtractorByFilename(fullpath)
 	if err != nil {
@@ -116,7 +73,7 @@ func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
 	rawstring := gs.InputConversion(raw)
 
 	// zap URLS
-	s := removeURL(rawstring)
+	s := gospell.RemoveURL(rawstring)
 
 	for linenum, line := range strings.Split(s, "\n") {
 		// now get words
