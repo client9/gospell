@@ -110,6 +110,7 @@ func TestSplitCamelCase(t *testing.T) {
 		{"fooBar", []string{"foo", "Bar"}},
 		{"FOOword", []string{"FOO", "word"}},
 		{"isFOO", []string{"is", "FOO"}},
+		{"RemoveURL", []string{"Remove", "Url"}},
 	}
 	for _, tt := range cases {
 		got := splitCamelCase(tt.word)

@@ -85,10 +85,10 @@ func isHash(s string) bool {
 func splitCamelCase(s string) []string {
 	out := []string{}
 
-	s = strings.Replace(s, "HTTP", "", -1)
-	s = strings.Replace(s, "HTML", "", -1)
-	s = strings.Replace(s, "URL", "", -1)
-	s = strings.Replace(s, "URI", "", -1)
+	s = strings.Replace(s, "HTTP", "Http", -1)
+	s = strings.Replace(s, "HTML", "Html", -1)
+	s = strings.Replace(s, "URL", "Url", -1)
+	s = strings.Replace(s, "URI", "Uri", -1)
 
 	caps := camelCaseRegexp1.FindAllStringIndex(s, -1)
 
