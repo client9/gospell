@@ -32,6 +32,8 @@ func SpellFile(gs *GoSpell, ext plaintext.Extractor, raw []byte) []Diff {
 
 	// zap URLS
 	s := RemoveURL(rawstring)
+	// zap file paths
+	s = RemovePath(s)
 
 	for linenum, line := range strings.Split(s, "\n") {
 		// now get words
