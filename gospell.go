@@ -49,6 +49,15 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	return true
 }
 
+func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
+	fd, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer fd.Close()
+	return s.AddWordList(fd)
+}	
+
 // AddWordList adds basic word lists, just one word per line
 //  Assumed to be in UTF-8
 // TODO: hunspell compatible with "*" prefix for forbidden words

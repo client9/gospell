@@ -16,15 +16,14 @@ package main
 import (
 	"bytes"
 	"flag"
-	"github.com/client9/gospell"
-	"github.com/client9/plaintext"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/template"
 	"time"
+
+	"github.com/client9/gospell"
 )
 
 var (
@@ -46,55 +45,6 @@ func init() {
 	defaultLog = template.Must(template.New("defaultLog").Parse(defaultLogTmpl))
 	defaultWord = template.Must(template.New("defaultWord").Parse(defaultWordTmpl))
 	defaultLine = template.Must(template.New("defaultLine").Parse(defaultLineTmpl))
-}
-
-type diff struct {
-	Filename string
-	Path     string
-	Original string
-	Line     string
-	LineNum  int
-}
-
-func process(gs *gospell.GoSpell, fullpath string, raw []byte) {
-	md, err := plaintext.ExtractorByFilename(fullpath)
-	if err != nil {
-		return
-		//log.Fatalf("Unable to create parser: %s", err)
-	}
-	// remove any golang templates
-	raw = plaintext.StripTemplate(raw)
-
-	// extract plain text
-	raw = md.Text(raw)
-
-	// do character conversion "smart quotes" to quotes, etc
-	// as specified in the Affix file
-	rawstring := gs.InputConversion(raw)
-
-	// zap URLS
-	s := gospell.RemoveURL(rawstring)
-
-	for linenum, line := range strings.Split(s, "\n") {
-		// now get words
-		words := gs.Split(line)
-		for _, word := range words {
-			// HACK
-			word = strings.Trim(word, "'")
-			if known := gs.Spell(word); !known {
-				var output bytes.Buffer
-				defaultLog.Execute(&output, diff{
-					Filename: filepath.Base(fullpath),
-					Path:     fullpath,
-					Line:     line,
-					LineNum:  linenum + 1,
-					Original: word,
-				})
-				// goroutine-safe print to os.Stdout
-				stdout.Println(output.String())
-			}
-		}
-	}
 }
 
 func main() {
@@ -193,6 +143,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		process(h, arg, raw)
+		out := gospell.SpellFile(h, arg, raw)
+		for _, diff := range out {
+			buf := bytes.Buffer{}
+			defaultLog.Execute(&buf, diff)
+			// goroutine-safe print to os.Stdout
+			stdout.Println(buf.String())
+		}
 	}
 }
