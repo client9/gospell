@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// returns the mimetype of the full filename if none
+// returns the mime type of the full filename if none
 func getSuffix(filename string) string {
 	idx := strings.LastIndex(filename, ".")
 	if idx == -1 || idx+1 == len(filename) {

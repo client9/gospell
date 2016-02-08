@@ -14,10 +14,10 @@ var trailingHeadline = regexp.MustCompile(" *#+ *$")
 // code fences can have leading whitespace apparently
 var codeFence = regexp.MustCompile("^\\s*```")
 
-// single line, single backquote code snippet
+// single line, single back quote code snippet
 // this is the most common case although markdown
 // apparently supports ``...`\n\n....`` style multi-line
-// to allow embedded backquotes
+// to allow embedded back quotes
 var simpleCode = regexp.MustCompile("`[^`]+`")
 
 // MarkdownText extracts plain text from markdown sources
@@ -52,7 +52,7 @@ func cleanupLine(s []byte) []byte {
 	s = leadingHeadline.ReplaceAll(s, nil)
 	s = trailingHeadline.ReplaceAll(s, nil)
 
-	// strip away leading "> > > " from blockquotes
+	// strip away leading "> > > " from block quotes
 	s = blockQuote.ReplaceAll(s, nil)
 
 	// is all "-", "=", "*", "|" make empty

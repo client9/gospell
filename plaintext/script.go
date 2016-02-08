@@ -5,7 +5,7 @@ import (
 )
 
 // ScriptText extract plaintext from "generic script" languages
-//  that use the '#' character to denote a comment line
+// that use the '#' character to denote a comment line
 // It's not so smart.
 // TODO: add support for Ruby, multi-line comment
 //  http://www.tutorialspoint.com/ruby/ruby_comments.htm
