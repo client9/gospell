@@ -6,7 +6,6 @@ import (
 
 // Functions to remove non-words such as URLs, file paths, etc.
 
-
 // This needs auditing as I believe it is wrong
 func enURLChar(c rune) bool {
 	return (c >= 'a' && c <= 'z') ||
@@ -51,4 +50,3 @@ func RemoveURL(s string) string {
 		s = news
 	}
 }
-

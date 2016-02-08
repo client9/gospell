@@ -42,7 +42,7 @@ func (s *GoSpell) Split(text string) []string {
 func (s *GoSpell) AddWordRaw(word string) bool {
 	_, ok := s.Dict[word]
 	if ok {
-		// hey already exists
+		// already exists
 		return false
 	}
 	s.Dict[word] = struct{}{}
@@ -56,7 +56,7 @@ func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
 	}
 	defer fd.Close()
 	return s.AddWordList(fd)
-}	
+}
 
 // AddWordList adds basic word lists, just one word per line
 //  Assumed to be in UTF-8
@@ -113,7 +113,7 @@ func (s *GoSpell) Spell(word string) bool {
 		}
 	}
 
-	// ok maybe a word with units? e.g. 100GB
+	// Maybe a word with units? e.g. 100GB
 	units := isNumberUnits(word)
 	if units != "" {
 		// dictionary appears to have list of units
@@ -123,7 +123,7 @@ func (s *GoSpell) Spell(word string) bool {
 	}
 
 	// if camelCase and each word e.g. "camel" "Case" is know
-	// then the word is ok!
+	// then the word is considered known
 	if chunks := splitCamelCase(word); len(chunks) > 0 {
 		if false {
 			for _, chunk := range chunks {
@@ -138,7 +138,7 @@ func (s *GoSpell) Spell(word string) bool {
 	return false
 }
 
-// NewGoSpellReader creates a speller from io.Readers for aff and dic
+// NewGoSpellReader creates a speller from io.Readers for
 // Hunspell files
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	affix, err := NewDictConfig(aff)
@@ -204,7 +204,6 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		if err != nil {
 			log.Printf("REGEXP FAIL= %q %s", pattern, err)
 		} else {
-			//log.Printf("REGEXP ok %s", pattern)
 			gs.compounds = append(gs.compounds, pat)
 		}
 
@@ -213,11 +212,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	if len(affix.IconvReplacements) > 0 {
 		gs.ireplacer = strings.NewReplacer(affix.IconvReplacements...)
 	}
-	//	log.Printf("Internal dictionary has %d entries", len(gs.Dict))
 	return &gs, nil
 }
 
-// NewGoSpell from aff and dic Hunspell filenames
+// NewGoSpell from AFF and DIC Hunspell filenames
 func NewGoSpell(affFile, dicFile string) (*GoSpell, error) {
 	aff, err := os.Open(affFile)
 	if err != nil {

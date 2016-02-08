@@ -61,7 +61,7 @@ func CaseStyle(word string) WordCase {
 }
 
 // CaseVariations returns
-// If AllUpper or First-Letter-Only is upcased: add the all upper case versoin
+// If AllUpper or First-Letter-Only is upcased: add the all upper case version
 // If AllLower, add the original, the title and upcase forms
 // If Mixed, return the original, and the all upcase form
 //

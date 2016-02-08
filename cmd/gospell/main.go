@@ -1,18 +1,5 @@
 package main
 
-// email
-// [separator]a-zA-Z0-9+@domain.com[separator]
-// http[s]://   [separator]
-/*
-   } else if (! (is_wordchar(line[actual] + url_head) ||
-     (ch == '-') || (ch == '_') || (ch == '\\') ||
-     (ch == '.') || (ch == ':') || (ch == '/') ||
-     (ch == '~') || (ch == '%') || (ch == '*') ||
-     (ch == '$') || (ch == '[') || (ch == ']') ||
-     (ch == '?') || (ch == '!') ||
-     ((ch >= '0') && (ch <= '9')))) {
-*/
-
 import (
 	"bytes"
 	"flag"
@@ -24,6 +11,7 @@ import (
 	"time"
 
 	"github.com/client9/gospell"
+	"github.com/client9/gospell/plaintext"
 )
 
 var (
@@ -52,10 +40,10 @@ func main() {
 	listOnly := flag.Bool("l", false, "only print unknown word")
 	lineOnly := flag.Bool("L", false, "print line with unknown word")
 
-	// TODO based on OS (windows vs. linux)
+	// TODO based on OS (Windows vs. Linux)
 	dictPath := flag.String("path", ".:/usr/local/share/hunspell:/usr/share/hunspell", "Search path for dictionaries")
 
-	// TODO based on ENV settings
+	// TODO based on environment variable settings
 	dicts := flag.String("d", "en_US", "dictionaries to load")
 
 	personalDict := flag.String("p", "", "personal wordlist file")
@@ -131,7 +119,16 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
-		process(h, "stdin", raw)
+		pt, _ := plaintext.NewIdentity()
+		out := gospell.SpellFile(h, pt, raw)
+		for _, diff := range out {
+			diff.Filename = "stdin"
+			diff.Path = ""
+			buf := bytes.Buffer{}
+			defaultLog.Execute(&buf, diff)
+			// goroutine-safe print to os.Stdout
+			stdout.Println(buf.String())
+		}
 	}
 	for _, arg := range args {
 		// ignore directories
@@ -143,8 +140,14 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		out := gospell.SpellFile(h, arg, raw)
+		pt, err := plaintext.ExtractorByFilename(arg)
+		if err != nil {
+			continue
+		}
+		out := gospell.SpellFile(h, pt, raw)
 		for _, diff := range out {
+			diff.Filename = filepath.Base(arg)
+			diff.Path = arg
 			buf := bytes.Buffer{}
 			defaultLog.Execute(&buf, diff)
 			// goroutine-safe print to os.Stdout

@@ -30,7 +30,7 @@ software licenses.
 maintains many open source lists via
 the [SCOWL](http://wordlist.aspell.net) project.  The source code and
 raw lists are available on
-[GitHub kevina/wordlist](https://github.com/kevina/wordlist)
+[GitHub `kevina/wordlist`](https://github.com/kevina/wordlist)
 
 
 #### Marco A.G.Pinto

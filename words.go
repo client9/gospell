@@ -34,9 +34,9 @@ func (s *Splitter) Split(in string) []string {
 }
 
 // NewSplitter creates a new splitter.  The input is a string in
-// UTF-8 encoding.  Each rune in the stirng will be considered to be a
+// UTF-8 encoding.  Each rune in the string will be considered to be a
 // valid word character.  Runes that are NOT here are deemed a word
-// boundy Current implementation uses
+// boundary Current implementation uses
 // https://golang.org/pkg/strings/#FieldsFunc
 func NewSplitter(chars string) *Splitter {
 	s := Splitter{}
@@ -64,7 +64,7 @@ func isNumberUnits(s string) string {
 	if !numberUnitsRegexp.MatchString(s) {
 		return ""
 	}
-	// ok starts with a number
+	// Starts with a number
 	for idx, ch := range s {
 		if ch >= '0' && ch <= '9' {
 			continue
@@ -97,7 +97,7 @@ func splitCamelCase(s string) []string {
 		return nil
 	}
 
-	// is only first character capitalized? or is the whole word capialized
+	// is only first character capitalized? or is the whole word capitalized
 	if len(caps) == 1 && caps[0][0] == 0 && (caps[0][1] == 1 || caps[0][1] == len(s)) {
 		return nil
 	}
