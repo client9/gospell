@@ -49,6 +49,7 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	return true
 }
 
+// AddWordListFile reads in a word list file
 func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
 	fd, err := os.Open(name)
 	if err != nil {
