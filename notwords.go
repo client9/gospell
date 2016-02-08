@@ -1,6 +1,7 @@
 package gospell
 
 import (
+	"bytes"
 	"strings"
 )
 
@@ -49,4 +50,44 @@ func RemoveURL(s string) string {
 		}
 		s = news
 	}
+}
+
+func RemovePath(s string) string {
+	out := bytes.Buffer{}
+	var idx int
+	for len(s) > 0 {
+		if idx = strings.IndexByte(s, '/'); idx == -1 {
+			out.WriteString(s)
+			break
+		}
+
+		if idx > 0 {
+			idx--
+		}
+
+		var chclass string
+		switch s[idx] {
+		case '/', ' ', '\n', '\t', '\r':
+			chclass = " \n\r\t"
+		case '[':
+			chclass = "]\n"
+		case '(':
+			chclass = ")\n"
+		default:
+			out.WriteString(s[:idx+2])
+			s = s[idx+2:]
+			continue
+		}
+
+		endx := strings.IndexAny(s[idx+1:], chclass)
+		if endx != -1 {
+			out.WriteString(s[:idx+1])
+			out.Write(bytes.Repeat([]byte{' '}, endx))
+			s = s[idx+endx+1:]
+		} else {
+			out.WriteString(s)
+			break
+		}
+	}
+	return out.String()
 }
