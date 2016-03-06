@@ -15,8 +15,8 @@ import (
 
 // Dictionary is the configuration structure
 type Dictionary struct {
-	Language  string   `json:"language"` // core dictionary
-	Extra     []string // extra word packs
+	Language string   `json:"language"` // core dictionary
+	Extra    []string // extra word packs
 	//Wordlist  []string // personal word list files
 	Additions []string // inline word additions
 	Removals  []string
