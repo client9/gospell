@@ -5,8 +5,7 @@
 
 Pure golang spelling dictionary based on hunspell dictionary format.
 
-NOTE: I'm not an expert in linguistics nor spelling.  Help is very
-welcome!
+NOTE: I'm not an expert in linguistics nor spelling.  Help is very welcome!
 
 ### What is hunspell?
 
