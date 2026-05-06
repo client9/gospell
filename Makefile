@@ -6,7 +6,7 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' 
 
 build: ## build module
-	go build ./...
+	go build ./cmd/gospell
 
 test: ## run all unit tests
 	go test ./...
@@ -37,5 +37,6 @@ lint: ## lint and verify repo is already formatted
 	golangci-lint run ./...
 
 clean: ## remove any generated files
+	go clean -i -cache -testcache
 	rm -f *.out 
-	rm -f ./plint
+	rm -f ./gospell
