@@ -1,0 +1,49 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+# https://github.com/actions/checkout
+# https://github.com/golangci/golangci-lint-action
+# https://github.com/actions/setup-go
+
+name: Go
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24', 'stable']
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+          install-only: true
+
+    - name: Version
+      run: make version
+
+    - name: Lint
+      run: make lint
+
+    - name: Build
+      run: make build
+
+    - name: Test
+      run: make test
