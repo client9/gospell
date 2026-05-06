@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"github.com/client9/gospell"
-	"github.com/client9/gospell/plaintext"
 )
 
 var (
-	stdout      *log.Logger // see below in init()
+	stdout      *log.Logger
 	defaultLog  *template.Template
 	defaultWord *template.Template
 	defaultLine *template.Template
@@ -28,7 +27,6 @@ const (
 )
 
 func init() {
-	// we see it so it doesn't use a prefix or include a time stamp.
 	stdout = log.New(os.Stdout, "", 0)
 	defaultLog = template.Must(template.New("defaultLog").Parse(defaultLogTmpl))
 	defaultWord = template.Must(template.New("defaultWord").Parse(defaultWordTmpl))
@@ -40,12 +38,8 @@ func main() {
 	listOnly := flag.Bool("l", false, "only print unknown word")
 	lineOnly := flag.Bool("L", false, "print line with unknown word")
 
-	// TODO based on OS (Windows vs. Linux)
 	dictPath := flag.String("path", ".:/usr/local/share/hunspell:/usr/share/hunspell", "Search path for dictionaries")
-
-	// TODO based on environment variable settings
 	dicts := flag.String("d", "en_US", "dictionaries to load")
-
 	personalDict := flag.String("p", "", "personal wordlist file")
 
 	flag.Parse()
@@ -54,11 +48,9 @@ func main() {
 	if *listOnly {
 		defaultLog = defaultWord
 	}
-
 	if *lineOnly {
 		defaultLog = defaultLine
 	}
-
 	if len(*format) > 0 {
 		t, err := template.New("custom").Parse(*format)
 		if err != nil {
@@ -72,7 +64,6 @@ func main() {
 	for _, base := range filepath.SplitList(*dictPath) {
 		affFile = filepath.Join(base, *dicts+".aff")
 		dicFile = filepath.Join(base, *dicts+".dic")
-		//log.Printf("Trying %s", affFile)
 		_, err1 := os.Stat(affFile)
 		_, err2 := os.Stat(dicFile)
 		if err1 == nil && err2 == nil {
@@ -81,7 +72,6 @@ func main() {
 		affFile = ""
 		dicFile = ""
 	}
-
 	if affFile == "" {
 		log.Fatalf("Unable to load %s", *dicts)
 	}
@@ -89,10 +79,7 @@ func main() {
 	log.Printf("Loading %s %s", affFile, dicFile)
 	timeStart := time.Now()
 	h, err := gospell.NewGoSpell(affFile, dicFile)
-	timeEnd := time.Now()
-
-	// note: 10x too slow
-	log.Printf("Loaded in %v", timeEnd.Sub(timeStart))
+	log.Printf("Loaded in %v", time.Since(timeStart))
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
@@ -106,56 +93,47 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to process personal dictionary %s: %s", *personalDict, err)
 		}
-		if len(duplicates) > 0 {
-			for _, word := range duplicates {
-				log.Printf("Word %q in personal dictionary already exists in main dictionary", word)
-			}
+		for _, word := range duplicates {
+			log.Printf("Word %q in personal dictionary already exists in main dictionary", word)
 		}
 	}
 
-	// stdin support
-	if len(args) == 0 {
-		raw, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			log.Fatalf("Unable to read Stdin: %s", err)
-		}
-		pt, _ := plaintext.NewIdentity()
-		out := gospell.SpellFile(h, pt, raw)
-		for _, diff := range out {
-			diff.Filename = "stdin"
-			diff.Path = ""
+	printDiffs := func(diffs []gospell.Diff) {
+		for _, diff := range diffs {
 			buf := bytes.Buffer{}
 			if err := defaultLog.Execute(&buf, diff); err != nil {
 				log.Printf("template error: %s", err)
 			}
-			// goroutine-safe print to os.Stdout
 			stdout.Println(buf.String())
 		}
 	}
+
+	if len(args) == 0 {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatalf("Unable to read stdin: %s", err)
+		}
+		out := gospell.SpellFile(h, raw)
+		for i := range out {
+			out[i].Filename = "stdin"
+		}
+		printDiffs(out)
+		return
+	}
+
 	for _, arg := range args {
-		// ignore directories
 		if f, err := os.Stat(arg); err != nil || f.IsDir() {
 			continue
 		}
-
 		raw, err := os.ReadFile(arg)
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		pt, err := plaintext.ExtractorByFilename(arg)
-		if err != nil {
-			continue
+		out := gospell.SpellFile(h, raw)
+		for i := range out {
+			out[i].Filename = filepath.Base(arg)
+			out[i].Path = arg
 		}
-		out := gospell.SpellFile(h, pt, raw)
-		for _, diff := range out {
-			diff.Filename = filepath.Base(arg)
-			diff.Path = arg
-			buf := bytes.Buffer{}
-			if err := defaultLog.Execute(&buf, diff); err != nil {
-				log.Printf("template error: %s", err)
-			}
-			// goroutine-safe print to os.Stdout
-			stdout.Println(buf.String())
-		}
+		printDiffs(out)
 	}
 }
