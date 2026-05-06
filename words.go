@@ -102,7 +102,7 @@ func splitCamelCase(s string) []string {
 		return nil
 	}
 	last := 0
-	for i := 0; i < len(caps); i++ {
+	for i := range caps {
 		if last != caps[i][0] {
 			out = append(out, s[last:caps[i][0]])
 			last = caps[i][0]
