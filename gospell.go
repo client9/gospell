@@ -22,7 +22,8 @@ type GoSpell struct {
 }
 
 // InputConversion does any character substitution before checking
-//  This is based on the ICONV stanza
+//
+//	This is based on the ICONV stanza
 func (s *GoSpell) InputConversion(raw []byte) string {
 	sraw := string(raw)
 	if s.ireplacer == nil {
@@ -60,7 +61,9 @@ func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
 }
 
 // AddWordList adds basic word lists, just one word per line
-//  Assumed to be in UTF-8
+//
+//	Assumed to be in UTF-8
+//
 // TODO: hunspell compatible with "*" prefix for forbidden words
 // and affix support
 // returns list of duplicated words and/or error

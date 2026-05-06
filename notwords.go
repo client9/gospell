@@ -34,7 +34,6 @@ func enNotURLChar(c rune) bool {
 }
 
 // RemoveURL attempts to strip away obvious URLs
-//
 func RemoveURL(s string) string {
 	var idx int
 
@@ -53,10 +52,10 @@ func RemoveURL(s string) string {
 }
 
 // RemovePath attempts to strip away embedded file system paths, e.g.
-//  /foo/bar or /static/myimg.png
 //
-//  TODO: windows style
+//	/foo/bar or /static/myimg.png
 //
+//	TODO: windows style
 func RemovePath(s string) string {
 	out := bytes.Buffer{}
 	var idx int

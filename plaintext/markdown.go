@@ -16,7 +16,7 @@ var codeFence = regexp.MustCompile("^\\s*```")
 
 // single line, single back quote code snippet
 // this is the most common case although markdown
-// apparently supports ``...`\n\n....`` style multi-line
+// apparently supports “...`\n\n....“ style multi-line
 // to allow embedded back quotes
 var simpleCode = regexp.MustCompile("`[^`]+`")
 

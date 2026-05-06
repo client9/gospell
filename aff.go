@@ -70,7 +70,8 @@ type DictConfig struct {
 }
 
 // Expand expands a word/affix using dictionary/affix rules
-//  This also supports CompoundRule flags
+//
+//	This also supports CompoundRule flags
 func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 	out = out[:0]
 	idx := strings.Index(wordAffix, "/")

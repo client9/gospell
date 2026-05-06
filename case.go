@@ -64,7 +64,6 @@ func CaseStyle(word string) WordCase {
 // If AllUpper or First-Letter-Only is upcased: add the all upper case version
 // If AllLower, add the original, the title and upcase forms
 // If Mixed, return the original, and the all upcase form
-//
 func CaseVariations(word string, style WordCase) []string {
 	switch style {
 	case AllLower:

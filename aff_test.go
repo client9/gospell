@@ -7,7 +7,6 @@ import (
 )
 
 // SmokeTest for AFF parser.  Contains a little bit of everything.
-//
 func TestAFFSmoke(t *testing.T) {
 	sample := `
 #
