@@ -1,0 +1,137 @@
+package gospell
+
+import "fmt"
+
+// affixMatcher holds a pre-parsed hunspell condition pattern and knows
+// whether to test it against the start (prefix) or end (suffix) of a word.
+// It replaces regexp.Regexp for this purpose: hunspell's pattern syntax is
+// a strict subset of regex (no alternation, no repetition), so a direct
+// character-by-character matcher is far cheaper than compiling an NFA.
+type affixMatcher struct {
+	elems    []matchElem
+	isPrefix bool
+}
+
+// matchElem represents one character's worth of pattern: any char, a literal,
+// an inclusive class [abc], or an exclusive class [^abc].
+type matchElem struct {
+	kind    matchElemKind
+	literal rune
+	class   []rune // non-nil only for matchClass / matchNegClass
+}
+
+type matchElemKind byte
+
+const (
+	matchAny      matchElemKind = iota // '.'    — any single character
+	matchLiteral                       // 'x'    — exact rune
+	matchClass                         // [abc]  — any rune in set
+	matchNegClass                      // [^abc] — any rune NOT in set
+)
+
+// parseAffixPattern converts a hunspell condition string into an affixMatcher.
+//
+// Hunspell pattern syntax (from man 5 hunspell):
+//
+//	.       matches any single character
+//	[abc]   matches any character in the set
+//	[^abc]  matches any character NOT in the set
+//	c       matches the literal character c
+//
+// The returned matcher is always anchored: isPrefix=true checks the word start,
+// isPrefix=false checks the word end.
+//
+// Returns nil (not an error) when pat is "." — the hunspell convention meaning
+// "no condition; always apply the rule."
+func parseAffixPattern(pat string, isPrefix bool) (*affixMatcher, error) {
+	// "." is the hunspell wildcard meaning "match everything"
+	if pat == "." {
+		return nil, nil
+	}
+
+	runes := []rune(pat)
+	elems := make([]matchElem, 0, len(runes))
+
+	for i := 0; i < len(runes); {
+		switch runes[i] {
+		case '.':
+			elems = append(elems, matchElem{kind: matchAny})
+			i++
+
+		case '[':
+			i++ // consume '['
+			negate := false
+			if i < len(runes) && runes[i] == '^' {
+				negate = true
+				i++
+			}
+			var class []rune
+			for i < len(runes) && runes[i] != ']' {
+				class = append(class, runes[i])
+				i++
+			}
+			if i >= len(runes) {
+				return nil, fmt.Errorf("unclosed '[' in affix pattern %q", pat)
+			}
+			i++ // consume ']'
+			kind := matchClass
+			if negate {
+				kind = matchNegClass
+			}
+			elems = append(elems, matchElem{kind: kind, class: class})
+
+		default:
+			elems = append(elems, matchElem{kind: matchLiteral, literal: runes[i]})
+			i++
+		}
+	}
+
+	return &affixMatcher{elems: elems, isPrefix: isPrefix}, nil
+}
+
+// MatchString reports whether the pattern matches word at the appropriate boundary.
+// Prefix matchers test the first len(elems) runes; suffix matchers test the last.
+func (m *affixMatcher) MatchString(word string) bool {
+	runes := []rune(word)
+	n := len(m.elems)
+	if n > len(runes) {
+		return false
+	}
+
+	// Slice to exactly the characters the pattern will consume.
+	var slice []rune
+	if m.isPrefix {
+		slice = runes[:n]
+	} else {
+		slice = runes[len(runes)-n:]
+	}
+
+	for i, elem := range m.elems {
+		c := slice[i]
+		switch elem.kind {
+		case matchLiteral:
+			if c != elem.literal {
+				return false
+			}
+		case matchClass:
+			found := false
+			for _, r := range elem.class {
+				if r == c {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		case matchNegClass:
+			for _, r := range elem.class {
+				if r == c {
+					return false
+				}
+			}
+			// matchAny: every character passes — no action needed
+		}
+	}
+	return true
+}

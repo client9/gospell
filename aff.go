@@ -4,10 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
-	// "log"
 )
 
 type affixType int
@@ -45,7 +43,7 @@ type rule struct {
 	Strip     string
 	AffixText string
 	Pattern   string
-	matcher   *regexp.Regexp
+	matcher   *affixMatcher
 }
 
 type dictConfig struct {
@@ -263,20 +261,10 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				if parts[2] != "0" {
 					strip = parts[2]
 				}
-				var matcher *regexp.Regexp
-				var err error
 				pat := parts[4]
-				if pat != "." {
-					if a.Type == prefix {
-						pat = "^" + pat
-					} else {
-						pat = pat + "$"
-					}
-					matcher, err = regexp.Compile(pat)
-					if err != nil {
-						return nil, fmt.Errorf("unable to compile %s", pat)
-					}
-					//log.Printf("compiled regexp %q", pat)
+				matcher, err := parseAffixPattern(pat, a.Type == prefix)
+				if err != nil {
+					return nil, fmt.Errorf("unable to parse affix pattern %q: %w", pat, err)
 				}
 				a.Rules = append(a.Rules, rule{
 					Strip:     strip,
