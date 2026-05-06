@@ -90,7 +90,7 @@ func main() {
 	if *exitOnly {
 		return
 	}
-	
+
 	if *personalDict != "" {
 		raw, err := os.ReadFile(*personalDict)
 		if err != nil {
