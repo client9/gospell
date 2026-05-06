@@ -232,11 +232,9 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 		}
 	}
 	a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
-	if !compoundOnly {
-		if _, ok := added[word]; !ok {
-			*out = append(*out, word)
-			added[word] = struct{}{}
-		}
+	if _, ok := added[word]; !ok {
+		*out = append(*out, word)
+		added[word] = struct{}{}
 	}
 	applyKeys := func(keys []string, wantType affixType) error {
 		for _, key := range keys {

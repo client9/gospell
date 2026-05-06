@@ -103,6 +103,51 @@ COMPOUNDMIN 2
 	}
 }
 
+func TestSurfaceRecordsLoaded(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+ONLYINCOMPOUND O
+`
+	sampleDic := `2
+foo/O
+bar
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	if len(gs.surfaces["foo"]) == 0 {
+		t.Fatalf("foo surface record missing")
+	}
+	if len(gs.surfaces["bar"]) == 0 {
+		t.Fatalf("bar surface record missing")
+	}
+	if len(gs.surfaces["foo"][0].RawFlags) == 0 {
+		t.Fatalf("foo raw flags not recorded")
+	}
+}
+
+func TestSpellExactUsesSurfaceRecords(t *testing.T) {
+	gs := &GoSpell{
+		dict: map[string]struct{}{
+			"foo": {},
+		},
+		surfaces: map[string][]surfaceEntry{
+			"foo": {{
+				Word:              "foo",
+				StandaloneAllowed: false,
+			}},
+		},
+	}
+	if got := gs.spellExact("foo"); got {
+		t.Fatalf("expected surface-restricted foo to be rejected")
+	}
+	gs.surfaces["foo"][0].StandaloneAllowed = true
+	if got := gs.spellExact("foo"); !got {
+		t.Fatalf("expected surface-allowed foo to be accepted")
+	}
+}
+
 func TestExpand(t *testing.T) {
 	sample := `
 SET UTF-8
@@ -560,6 +605,15 @@ baz/CA
 	if err != nil {
 		t.Fatalf("Unable to create GoSpell: %v", err)
 	}
+	if !gs.compoundStartPart("pseudos") {
+		t.Fatalf("pseudos should be accepted as a compound start part")
+	}
+	if !gs.compoundFinalPart("foo", allLower) {
+		t.Fatalf("foo should be accepted as a compound final part")
+	}
+	if !gs.spellExact("pseudosfoo") {
+		t.Fatalf("pseudosfoo should be accepted by spellExact")
+	}
 	cases := []struct {
 		word string
 		want bool
@@ -629,6 +683,12 @@ last/c
 	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
 	if err != nil {
 		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	if gs.onlyCompoundCount["pseudos"] == 0 {
+		t.Fatalf("pseudos not marked compound-only")
+	}
+	if gs.wordEntryCount["pseudos"] == 0 {
+		t.Fatalf("pseudos not loaded")
 	}
 	cases := []struct {
 		word string
@@ -733,6 +793,43 @@ baz/B
 		{"foobar", true},
 		{"foobaz", true},
 		{"barfoo", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestOnlyInCompoundRegression(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+ONLYINCOMPOUND O
+COMPOUNDFLAG A
+SFX B Y 1
+SFX B 0 s .
+`
+	sampleDic := `2
+foo/A
+pseudo/OAB
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	if _, ok := gs.compoundOnlyRoot["pseudo"]; !ok {
+		t.Fatalf("pseudo not recorded as a compound-only root surface")
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"pseudo", false},
+		{"pseudofoo", true},
+		{"foopseudo", true},
+		{"foopseudos", true},
+		{"pseudos", false},
 	}
 	for pos, tt := range cases {
 		if got := gs.Spell(tt.word); got != tt.want {
