@@ -1,67 +1,147 @@
 # gospell
+
 [![Go Reference](https://pkg.go.dev/badge/github.com/client9/gospell.svg)](https://pkg.go.dev/github.com/client9/gospell)
 [![Build Status](https://github.com/client9/gospell/actions/workflows/go.yml/badge.svg)](https://github.com/client9/gospell/actions)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](https://raw.githubusercontent.com/client9/gospell/main/LICENSE)
 
-Pure golang spelling dictionary based on hunspell dictionary format.
+`gospell` is a pure Go spell checker for Hunspell-style dictionaries.
 
-NOTE: I'm not an expert in linguistics nor spelling.  Help is very welcome!
+It is designed for:
 
-### What is hunspell?
+- loading Hunspell `.aff` and `.dic` files
+- exact word checking
+- word splitting and compound handling
+- pluggable suggestion engines
 
-* http://hunspell.github.io
-* https://github.com/hunspell
+The package keeps the core checker small and lets you choose the suggestion strategy that fits your workload.
 
-NOTE: This is not affiliated with Hunspell although if they wanted
-merge it in as an official project, I'd be happy to donate the code
-(although it's in no shape to do so right now).
+## Features
 
-### Where can I get English dictionaries?
+- Pure Go implementation
+- Hunspell dictionary format support
+- Exact spell checking with affix and compound handling
+- Word list loading for custom dictionaries
+- Pluggable suggestion engines
+- Built-in reference engines:
+  - brute-force Levenshtein
+  - hashed trigram index with Levenshtein rerank
 
-The world of spelling dictionaries is surprisingly complicated, as
-"lists of words" are frequently proprietary and with conflicting
-software licenses.
-
-### Kevin Atkinson
-
-[Kevin Atkinson](http://www.kevina.org)
-maintains many open source lists via
-the [SCOWL](http://wordlist.aspell.net) project.  The source code and
-raw lists are available on
-[GitHub `kevina/wordlist`](https://github.com/kevina/wordlist)
-
-#### Marco A.G.Pinto
-
-Marco maintains the released dictionaries for Firefox and Apache Open
-Office.  The word lists appears to be actively updated.
-
-https://github.com/marcoagpinto/aoo-mozilla-en-dict
-
-#### Open Office
-
-http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
-
-The downloaded file has a `.oxt` extension but it's a compressed `tar`
-file.  Extract the files using:
-
-```
-mkdir dict-en
-cd dict-en
-tar -xzf ../dict-en.oxt
-```
-
-#### Chromium
-
-The Chrome/Chromium browser uses Hunspell and it's source tree
-contains various up-to-date dictionaries, some with additional words.  You can view them at
-[chromium.googlesource.com](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
-and you can check them out locally via
+## Install
 
 ```bash
-git clone --depth=1 https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries
+go get github.com/client9/gospell
 ```
 
-More information can be found in the [chromium developer guide](https://www.chromium.org/developers/how-tos/editing-the-spell-checking-dictionaries)
+## Basic Use
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/client9/gospell"
+)
+
+func main() {
+	gs, err := gospell.NewGoSpell("hunspell-en_US-2026/en_US.aff", "hunspell-en_US-2026/en_US.dic")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(gs.Spell("silly"))
+	fmt.Println(gs.Spell("sillly"))
+}
+```
+
+## Suggestions
+
+Suggestions are provided by a pluggable engine.
+
+```go
+gs, err := gospell.NewGoSpell("hunspell-en_US-2026/en_US.aff", "hunspell-en_US-2026/en_US.dic")
+if err != nil {
+	log.Fatal(err)
+}
+
+if err := gs.SetSuggester(gospell.NewLevenshteinSuggester(
+	gospell.LevenshteinOptions{MaxDistance: 2},
+)); err != nil {
+	log.Fatal(err)
+}
+
+sugs, err := gs.Suggest("sillly", 5)
+if err != nil {
+	log.Fatal(err)
+}
+for _, sug := range sugs {
+	fmt.Println(sug.Word, sug.Score)
+}
+```
+
+For a faster indexed strategy:
+
+```go
+if err := gs.SetSuggester(gospell.NewTrigramSuggester(
+	gospell.TrigramOptions{
+		RerankLimit:   32,
+		MaxLengthDiff: 4,
+	},
+)); err != nil {
+	log.Fatal(err)
+}
+```
+
+### Suggestion Engines
+
+`gospell` ships with a small interface so you can swap suggestion strategies without changing the checker:
+
+```go
+type Suggestions interface {
+	Init(src SuggestionSource) error
+	Suggest(word string, limit int) ([]Suggestion, error)
+}
+```
+
+This makes it easy to experiment with:
+
+- brute-force distance scoring
+- n-gram or trigram indexing
+- mutation-based candidate generation
+- chained or composite engines
+
+## API Overview
+
+The main entry points are:
+
+- [`NewGoSpell`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpell)
+- [`NewGoSpellReader`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpellReader)
+- [`(*GoSpell).Spell`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Spell)
+- [`(*GoSpell).SetSuggester`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.SetSuggester)
+- [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
+- [`(*GoSpell).AddWordList`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.AddWordList)
+
+## Hunspell Compatibility
+
+This package understands the Hunspell dictionary format and supports:
+
+- affix expansion
+- compound rules
+- iconv conversions
+- case handling
+- custom word lists
+
+## Dictionary Files
+
+The repository includes an English Hunspell dictionary used by tests and benchmarks:
+
+- `hunspell-en_US-2026/en_US.aff`
+- `hunspell-en_US-2026/en_US.dic`
+
+## Contributing
+
+This project is still evolving. If you find a bug, a mismatch with Hunspell behavior, or a better suggestion strategy, patches are welcome.
 
 ## License
 
