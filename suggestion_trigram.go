@@ -2,8 +2,8 @@ package gospell
 
 import (
 	"fmt"
-	"sort"
 	"slices"
+	"sort"
 
 	"github.com/agnivade/levenshtein"
 )
@@ -20,9 +20,9 @@ type TrigramSuggester struct {
 	opts          TrigramOptions
 	words         []string
 	postings      map[uint64][]int
-	wordGramCount  []int
-	wordLen        []int
-	maxWordLen     int
+	wordGramCount []int
+	wordLen       []int
+	maxWordLen    int
 }
 
 var _ Suggestions = (*TrigramSuggester)(nil)
@@ -169,7 +169,7 @@ func (s *TrigramSuggester) Suggest(word string, limit int) ([]Suggestion, error)
 
 func hash3Runes(a, b, c rune) uint64 {
 	x := uint64(a)*0x9e3779b97f4a7c15 ^
-		(uint64(b)+0xbf58476d1ce4e5b9) ^
+		(uint64(b) + 0xbf58476d1ce4e5b9) ^
 		(uint64(c)<<1 | 1)
 	x ^= x >> 33
 	x *= 0xff51afd7ed558ccd
@@ -214,4 +214,3 @@ func absIntTrigram(v int) int {
 	}
 	return v
 }
-

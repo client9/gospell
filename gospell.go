@@ -12,12 +12,12 @@ import (
 
 // GoSpell is main struct
 type GoSpell struct {
-	dict        map[string]struct{}
-	maxWordLen  int
-	ireplacer   *strings.Replacer
-	compounds   []*regexp.Regexp
-	splitter    *splitter
-	suggester   Suggestions
+	dict       map[string]struct{}
+	maxWordLen int
+	ireplacer  *strings.Replacer
+	compounds  []*regexp.Regexp
+	splitter   *splitter
+	suggester  Suggestions
 }
 
 // InputConversion does any character substitution before checking

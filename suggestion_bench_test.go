@@ -100,4 +100,3 @@ func BenchmarkSuggestTrigram(b *testing.B) {
 		MaxLengthDiff: 4,
 	}), 5)
 }
-
