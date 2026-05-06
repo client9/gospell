@@ -9,31 +9,26 @@ import (
 	"strings"
 )
 
-// AffixType is either an affix prefix or suffix
-type AffixType int
+type affixType int
 
-// specific Affix types
 const (
-	Prefix AffixType = iota
-	Suffix
+	prefix affixType = iota
+	suffix
 )
 
-// Affix is a rule for affix (adding prefixes or suffixes)
-type Affix struct {
-	Type         AffixType // either PFX or SFX
+type affix struct {
+	Type         affixType
 	CrossProduct bool
-	Rules        []Rule
+	Rules        []rule
 }
 
-// Expand provides all variations of a given word based on this affix rule
-func (a Affix) Expand(word string, out []string) []string {
+func (a affix) expand(word string, out []string) []string {
 	for _, r := range a.Rules {
 		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
 		}
-		if a.Type == Prefix {
+		if a.Type == prefix {
 			out = append(out, r.AffixText+word)
-			// TODO is does Strip apply to prefixes too?
 		} else {
 			stripWord := word
 			if r.Strip != "" && strings.HasSuffix(word, r.Strip) {
@@ -45,38 +40,31 @@ func (a Affix) Expand(word string, out []string) []string {
 	return out
 }
 
-// Rule is a Affix rule
-type Rule struct {
+type rule struct {
 	Strip     string
-	AffixText string         // suffix or prefix text to add
-	Pattern   string         // original matching pattern from AFF file
-	matcher   *regexp.Regexp // matcher to see if this rule applies or not
+	AffixText string
+	Pattern   string
+	matcher   *regexp.Regexp
 }
 
-// DictConfig is a partial representation of a Hunspell AFF (Affix) file.
-type DictConfig struct {
+type dictConfig struct {
 	Flag              string
 	TryChars          string
 	WordChars         string
 	NoSuggestFlag     rune
 	IconvReplacements []string
 	Replacements      [][2]string
-	AffixMap          map[rune]Affix
-	CamelCase         int
+	AffixMap          map[rune]affix
 	CompoundMin       int
 	CompoundOnly      string
 	CompoundRule      []string
 	compoundMap       map[rune][]string
 }
 
-// Expand expands a word/affix using dictionary/affix rules
-//
-//	This also supports CompoundRule flags
-func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
+func (a dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	out = out[:0]
 	idx := strings.Index(wordAffix, "/")
 
-	// not found
 	if idx == -1 {
 		out = append(out, wordAffix)
 		return out, nil
@@ -84,11 +72,8 @@ func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 	if idx == 0 || idx+1 == len(wordAffix) {
 		return nil, fmt.Errorf("slash char found in first or last position")
 	}
-	// safe
 	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
 
-	// check to see if any of the flags are in the
-	// "compound only".  If so then nothing to add
 	compoundOnly := false
 	for _, key := range keyString {
 		if strings.ContainsRune(a.CompoundOnly, key) {
@@ -96,10 +81,8 @@ func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 			continue
 		}
 		if _, ok := a.compoundMap[key]; !ok {
-			// the isn't a compound flag
 			continue
 		}
-		// is a compound flag
 		a.compoundMap[key] = append(a.compoundMap[key], word)
 	}
 
@@ -108,47 +91,39 @@ func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 	}
 
 	out = append(out, word)
-	prefixes := make([]Affix, 0, 5)
-	suffixes := make([]Affix, 0, 5)
+	prefixes := make([]affix, 0, 5)
+	suffixes := make([]affix, 0, 5)
 	for _, key := range keyString {
-		// want keyString to []?something?
-		// then iterate over that
 		af, ok := a.AffixMap[key]
 		if !ok {
-			// is it compound flag?
 			if _, ok := a.compoundMap[key]; ok {
 				continue
 			}
-			// is it a NoSuggest?
 			if key == a.NoSuggestFlag {
 				continue
 			}
-			// no idea
 			return nil, fmt.Errorf("unable to find affix key %v", key)
 		}
 		if !af.CrossProduct {
-			out = af.Expand(word, out)
+			out = af.expand(word, out)
 			continue
 		}
-		if af.Type == Prefix {
+		if af.Type == prefix {
 			prefixes = append(prefixes, af)
 		} else {
 			suffixes = append(suffixes, af)
 		}
 	}
 
-	// expand all suffixes with out any prefixes
 	for _, suf := range suffixes {
-		out = suf.Expand(word, out)
+		out = suf.expand(word, out)
 	}
 	for _, pre := range prefixes {
-		prewords := pre.Expand(word, nil)
+		prewords := pre.expand(word, nil)
 		out = append(out, prewords...)
-
-		// now do cross product
 		for _, suf := range suffixes {
 			for _, w := range prewords {
-				out = suf.Expand(w, out)
+				out = suf.expand(w, out)
 			}
 		}
 	}
@@ -165,13 +140,12 @@ func isCrossProduct(val string) (bool, error) {
 	return false, fmt.Errorf("CrossProduct is not Y or N: got %q", val)
 }
 
-// NewDictConfig reads an Hunspell AFF file
-func NewDictConfig(file io.Reader) (*DictConfig, error) {
-	aff := DictConfig{
+func newDictConfig(file io.Reader) (*dictConfig, error) {
+	aff := dictConfig{
 		Flag:        "ASCII",
-		AffixMap:    make(map[rune]Affix),
+		AffixMap:    make(map[rune]affix),
 		compoundMap: make(map[rune][]string),
-		CompoundMin: 3, // default in Hunspell
+		CompoundMin: 3,
 	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -189,26 +163,20 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 			}
 			aff.TryChars = parts[1]
 		case "ICONV":
-			// if only 2 fields, then its the first stanza that just provides a count
-			//  we don't care, as we dynamically allocate
 			if len(parts) == 2 {
 				continue
 			}
 			if len(parts) != 3 {
 				return nil, fmt.Errorf("ICONV stanza had %d fields, expected 2", len(parts))
 			}
-			// we have 3
 			aff.IconvReplacements = append(aff.IconvReplacements, parts[1], parts[2])
 		case "REP":
-			// if only 2 fields, then its the first stanza that just provides a count
-			//  we don't care, as we dynamically allocate
 			if len(parts) == 2 {
 				continue
 			}
 			if len(parts) != 3 {
 				return nil, fmt.Errorf("REP stanza had %d fields, expected 2", len(parts))
 			}
-			// we have 3
 			aff.Replacements = append(aff.Replacements, [2]string{parts[1], parts[2]})
 		case "COMPOUNDMIN":
 			if len(parts) != 2 {
@@ -243,7 +211,6 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("NOSUGGEST stanza had %d fields, expected 2", len(parts))
 			}
-			// should use runes or parse correctly
 			chars := []rune(parts[1])
 			if len(chars) != 1 {
 				return nil, fmt.Errorf("NOSUGGEST stanza had more than one flag: %q", parts[1])
@@ -261,42 +228,37 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 			aff.Flag = parts[1]
 			return nil, fmt.Errorf("FLAG stanza not yet supported")
 		case "PFX", "SFX":
-			atype := Prefix
+			atype := prefix
 			if parts[0] == "SFX" {
-				atype = Suffix
+				atype = suffix
 			}
-
 			switch len(parts) {
 			case 4:
 				cross, err := isCrossProduct(parts[2])
 				if err != nil {
 					return nil, err
 				}
-				// this is a new Affix!
-				a := Affix{
+				a := affix{
 					Type:         atype,
 					CrossProduct: cross,
 				}
 				flag := rune(parts[1][0])
 				aff.AffixMap[flag] = a
 			case 5:
-				// does this need to be split out into suffix and prefix?
 				flag := rune(parts[1][0])
 				a, ok := aff.AffixMap[flag]
 				if !ok {
 					return nil, fmt.Errorf("got rules for flag %q but no definition", flag)
 				}
-
 				strip := ""
 				if parts[2] != "0" {
 					strip = parts[2]
 				}
-
 				var matcher *regexp.Regexp
 				var err error
 				pat := parts[4]
 				if pat != "." {
-					if a.Type == Prefix {
+					if a.Type == prefix {
 						pat = "^" + pat
 					} else {
 						pat = pat + "$"
@@ -306,8 +268,7 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 						return nil, fmt.Errorf("unable to compile %s", pat)
 					}
 				}
-
-				a.Rules = append(a.Rules, Rule{
+				a.Rules = append(a.Rules, rule{
 					Strip:     strip,
 					AffixText: parts[3],
 					Pattern:   parts[4],

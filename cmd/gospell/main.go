@@ -79,10 +79,10 @@ func main() {
 	log.Printf("Loading %s %s", affFile, dicFile)
 	timeStart := time.Now()
 	h, err := gospell.NewGoSpell(affFile, dicFile)
-	log.Printf("Loaded in %v", time.Since(timeStart))
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
+	log.Printf("Loaded in %v", time.Since(timeStart))
 
 	if *personalDict != "" {
 		raw, err := os.ReadFile(*personalDict)
@@ -115,7 +115,7 @@ func main() {
 		}
 		out := gospell.SpellFile(h, raw)
 		for i := range out {
-			out[i].Filename = "stdin"
+			out[i].Path = "stdin"
 		}
 		printDiffs(out)
 		return
@@ -131,7 +131,6 @@ func main() {
 		}
 		out := gospell.SpellFile(h, raw)
 		for i := range out {
-			out[i].Filename = filepath.Base(arg)
 			out[i].Path = arg
 		}
 		printDiffs(out)

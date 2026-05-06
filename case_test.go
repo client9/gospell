@@ -8,18 +8,18 @@ import (
 func TestCaseStyle(t *testing.T) {
 	cases := []struct {
 		word string
-		want WordCase
+		want wordCase
 	}{
-		{"lower", AllLower},
-		{"what's", AllLower},
-		{"UPPER", AllUpper},
-		{"Title", Title},
-		{"CamelCase", Mixed},
-		{"camelCase", Mixed},
+		{"lower", allLower},
+		{"what's", allLower},
+		{"UPPER", allUpper},
+		{"Title", titleCase},
+		{"CamelCase", mixedCase},
+		{"camelCase", mixedCase},
 	}
 
 	for pos, tt := range cases {
-		got := CaseStyle(tt.word)
+		got := caseStyle(tt.word)
 		if tt.want != got {
 			t.Errorf("Case %d %q: want %v got %v", pos, tt.word, tt.want, got)
 		}
@@ -34,7 +34,7 @@ func TestCaseVariations(t *testing.T) {
 		{"that's", []string{"that's", "That's", "THAT'S"}},
 	}
 	for pos, tt := range cases {
-		got := CaseVariations(tt.word, CaseStyle(tt.word))
+		got := caseVariations(tt.word, caseStyle(tt.word))
 		if !reflect.DeepEqual(tt.want, got) {
 			t.Errorf("Case %d %q: want %v got %v", pos, tt.word, tt.want, got)
 		}

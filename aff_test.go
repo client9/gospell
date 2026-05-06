@@ -26,7 +26,7 @@ REP 1
 REP a ei
 COMPOUNDMIN 2
 `
-	aff, err := NewDictConfig(strings.NewReader(sample))
+	aff, err := newDictConfig(strings.NewReader(sample))
 	if err != nil {
 		t.Fatalf("Unable to parse sample: %s", err)
 	}
@@ -67,14 +67,14 @@ COMPOUNDMIN 2
 	if !ok {
 		t.Fatalf("Didn't get Affix for A")
 	}
-	if a.Type != Prefix {
-		t.Fatalf("A Affix should be PFX %v, got %v", Prefix, a.Type)
+	if a.Type != prefix {
+		t.Fatalf("A Affix should be PFX %v, got %v", prefix, a.Type)
 	}
 	if !a.CrossProduct {
 		t.Fatalf("A Affix should be a cross product")
 	}
 
-	variations := a.Expand("define", nil)
+	variations := a.expand("define", nil)
 	if len(variations) != 1 {
 		t.Fatalf("Expected 1 variation got %d", len(variations))
 	}
@@ -86,13 +86,13 @@ COMPOUNDMIN 2
 	if !ok {
 		t.Fatalf("Didn't get Affix for D")
 	}
-	if a.Type != Suffix {
-		t.Fatalf("Affix D is not a SFX %v", Suffix)
+	if a.Type != suffix {
+		t.Fatalf("Affix D is not a SFX %v", suffix)
 	}
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
 	}
-	variations = a.Expand("accept", nil)
+	variations = a.expand("accept", nil)
 	if len(variations) != 1 {
 		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
 	}
@@ -117,7 +117,7 @@ SFX B Y 2
 SFX B 0 ed [^y]
 SFX B y ied y
 `
-	aff, err := NewDictConfig(strings.NewReader(sample))
+	aff, err := newDictConfig(strings.NewReader(sample))
 	if err != nil {
 		t.Fatalf("Unable to parse sample: %s", err)
 	}
@@ -131,7 +131,7 @@ SFX B y ied y
 		{"work/AB", []string{"work", "worked", "rework", "reworked"}},
 	}
 	for pos, tt := range cases {
-		got, err := aff.Expand(tt.word, nil)
+		got, err := aff.expand(tt.word, nil)
 		if err != nil {
 			t.Errorf("%d: affix expansions error: %s", pos, err)
 		}

@@ -4,9 +4,8 @@ import (
 	"strings"
 )
 
-// Diff represent a unknown word in a file
+// Diff represents an unknown word found in a file.
 type Diff struct {
-	Filename string
 	Path     string
 	Original string
 	Line     string

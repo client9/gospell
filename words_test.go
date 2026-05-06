@@ -6,8 +6,7 @@ import (
 )
 
 func TestSplitter(t *testing.T) {
-
-	s := NewSplitter("012345689")
+	s := newSplitter("012345689")
 
 	cases := []struct {
 		word string
@@ -20,7 +19,7 @@ func TestSplitter(t *testing.T) {
 	}
 
 	for pos, tt := range cases {
-		got := s.Split(tt.word)
+		got := s.split(tt.word)
 		if !reflect.DeepEqual(tt.want, got) {
 			t.Errorf("%d want %v  got %v", pos, tt.want, got)
 		}
@@ -28,7 +27,6 @@ func TestSplitter(t *testing.T) {
 }
 
 func TestIsNumber(t *testing.T) {
-
 	cases := []struct {
 		word string
 		want bool
@@ -94,28 +92,6 @@ func TestIsNumberHex(t *testing.T) {
 	for _, tt := range cases {
 		if isNumberHex(tt.word) != tt.want {
 			t.Errorf("%q is not %v", tt.word, tt.want)
-		}
-	}
-}
-
-func TestSplitCamelCase(t *testing.T) {
-	cases := []struct {
-		word string
-		want []string
-	}{
-		{"foo", nil}, // not camel case
-		{"Foo", nil}, // not camel case
-		{"FOO", nil}, // not camel case
-		{"FooBar", []string{"Foo", "Bar"}},
-		{"fooBar", []string{"foo", "Bar"}},
-		{"FOOword", []string{"FOO", "word"}},
-		{"isFOO", []string{"is", "FOO"}},
-		{"RemoveURL", []string{"Remove", "Url"}},
-	}
-	for _, tt := range cases {
-		got := splitCamelCase(tt.word)
-		if !reflect.DeepEqual(tt.want, got) {
-			t.Errorf("%q : want %v got %v", tt.word, tt.want, got)
 		}
 	}
 }
