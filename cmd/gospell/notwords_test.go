@@ -1,8 +1,6 @@
-package gospell
+package main
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestRemovePath(t *testing.T) {
 	cases := []struct {
@@ -21,3 +19,4 @@ func TestRemovePath(t *testing.T) {
 		}
 	}
 }
+

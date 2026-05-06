@@ -105,7 +105,7 @@ func main() {
 		}
 	}
 
-	printDiffs := func(diffs []gospell.Diff) {
+	printDiffs := func(diffs []Diff) {
 		for _, diff := range diffs {
 			buf := bytes.Buffer{}
 			if err := defaultLog.Execute(&buf, diff); err != nil {
@@ -120,7 +120,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read stdin: %s", err)
 		}
-		out := gospell.SpellFile(h, raw)
+		out := SpellFile(h, raw)
 		for i := range out {
 			out[i].Path = "stdin"
 		}
@@ -136,7 +136,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		out := gospell.SpellFile(h, raw)
+		out := SpellFile(h, raw)
 		for i := range out {
 			out[i].Path = arg
 		}

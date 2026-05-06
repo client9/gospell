@@ -1,39 +1,11 @@
-package gospell
+package main
 
 import (
 	"bytes"
 	"strings"
 )
 
-// Functions to remove non-words such as URLs, file paths, etc.
-
-// This needs auditing as I believe it is wrong
-func enURLChar(c rune) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-' ||
-		c == '_' ||
-		c == '\\' ||
-		c == '.' ||
-		c == ':' ||
-		c == ';' ||
-		c == '/' ||
-		c == '~' ||
-		c == '%' ||
-		c == '*' ||
-		c == '$' ||
-		c == '[' ||
-		c == ']' ||
-		c == '?' ||
-		c == '#' ||
-		c == '!'
-}
-func enNotURLChar(c rune) bool {
-	return !enURLChar(c)
-}
-
-// removeURL attempts to strip away obvious URLs
+// removeURL attempts to strip away obvious URLs.
 func removeURL(s string) string {
 	var idx int
 
@@ -95,3 +67,31 @@ func removePath(s string) string {
 	}
 	return out.String()
 }
+
+// This needs auditing as I believe it is wrong.
+func enURLChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == '-' ||
+		c == '_' ||
+		c == '\\' ||
+		c == '.' ||
+		c == ':' ||
+		c == ';' ||
+		c == '/' ||
+		c == '~' ||
+		c == '%' ||
+		c == '*' ||
+		c == '$' ||
+		c == '[' ||
+		c == ']' ||
+		c == '?' ||
+		c == '#' ||
+		c == '!'
+}
+
+func enNotURLChar(c rune) bool {
+	return !enURLChar(c)
+}
+

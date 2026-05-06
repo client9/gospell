@@ -1,7 +1,9 @@
-package gospell
+package main
 
 import (
 	"strings"
+
+	"github.com/client9/gospell"
 )
 
 // Diff represents an unknown word found in a file.
@@ -13,7 +15,7 @@ type Diff struct {
 }
 
 // SpellFile spell-checks raw bytes treated as plain text.
-func SpellFile(gs *GoSpell, raw []byte) []Diff {
+func SpellFile(gs *gospell.GoSpell, raw []byte) []Diff {
 	out := []Diff{}
 
 	rawstring := gs.InputConversion(raw)
