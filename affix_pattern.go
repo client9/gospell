@@ -1,6 +1,9 @@
 package gospell
 
-import "fmt"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 // affixMatcher holds a pre-parsed hunspell condition pattern and knows
 // whether to test it against the start (prefix) or end (suffix) of a word.
@@ -91,47 +94,64 @@ func parseAffixPattern(pat string, isPrefix bool) (*affixMatcher, error) {
 
 // MatchString reports whether the pattern matches word at the appropriate boundary.
 // Prefix matchers test the first len(elems) runes; suffix matchers test the last.
+// No heap allocation is performed — the word is decoded on the fly via utf8.
 func (m *affixMatcher) MatchString(word string) bool {
-	runes := []rune(word)
 	n := len(m.elems)
-	if n > len(runes) {
-		return false
-	}
-
-	// Slice to exactly the characters the pattern will consume.
-	var slice []rune
 	if m.isPrefix {
-		slice = runes[:n]
-	} else {
-		slice = runes[len(runes)-n:]
+		pos := 0
+		for _, elem := range m.elems {
+			if pos >= len(word) {
+				return false // word exhausted before pattern
+			}
+			r, size := utf8.DecodeRuneInString(word[pos:])
+			if !matchRune(elem, r) {
+				return false
+			}
+			pos += size
+		}
+		return true
 	}
 
-	for i, elem := range m.elems {
-		c := slice[i]
-		switch elem.kind {
-		case matchLiteral:
-			if c != elem.literal {
-				return false
-			}
-		case matchClass:
-			found := false
-			for _, r := range elem.class {
-				if r == c {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return false
-			}
-		case matchNegClass:
-			for _, r := range elem.class {
-				if r == c {
-					return false
-				}
-			}
-			// matchAny: every character passes — no action needed
+	// Suffix: walk backward from the end to find where the last n runes begin,
+	// then walk forward matching each element.
+	pos := len(word)
+	for i := 0; i < n; i++ {
+		if pos == 0 {
+			return false // word has fewer runes than pattern needs
 		}
+		_, size := utf8.DecodeLastRuneInString(word[:pos])
+		pos -= size
+	}
+	for _, elem := range m.elems {
+		r, size := utf8.DecodeRuneInString(word[pos:])
+		if !matchRune(elem, r) {
+			return false
+		}
+		pos += size
 	}
 	return true
+}
+
+// matchRune tests a single decoded rune against one pattern element.
+func matchRune(elem matchElem, c rune) bool {
+	switch elem.kind {
+	case matchLiteral:
+		return c == elem.literal
+	case matchClass:
+		for _, r := range elem.class {
+			if r == c {
+				return true
+			}
+		}
+		return false
+	case matchNegClass:
+		for _, r := range elem.class {
+			if r == c {
+				return false
+			}
+		}
+		return true
+	default: // matchAny
+		return true
+	}
 }

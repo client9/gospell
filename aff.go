@@ -42,7 +42,6 @@ func (a affix) expand(word string, out []string) []string {
 type rule struct {
 	Strip     string
 	AffixText string
-	Pattern   string
 	matcher   *affixMatcher
 }
 
@@ -53,14 +52,24 @@ type dictConfig struct {
 	NoSuggestFlag     rune
 	IconvReplacements []string
 	Replacements      [][2]string
-	AffixMap          map[rune]affix
-	CompoundMin       int
-	CompoundOnly      string
-	CompoundRule      []string
-	compoundMap       map[rune][]string
+	// AffixMap stores pointers so appending rules in newDictConfig never
+	// requires a map write-back after each rule line.
+	AffixMap     map[rune]*affix
+	CompoundMin  int
+	CompoundOnly string
+	CompoundRule []string
+	compoundMap  map[rune][]string
+	// Scratch slices reused across expand calls to avoid per-entry allocations.
+	prefixScratch  []*affix
+	suffixScratch  []*affix
+	prewordScratch []string
 }
 
-func (a dictConfig) expand(wordAffix string, out []string) ([]string, error) {
+// expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
+// inflected forms to out, returning the updated slice.
+// The pointer receiver lets us reuse prefixScratch/suffixScratch/prewordScratch
+// across calls without allocating on every .dic entry.
+func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	out = out[:0]
 	idx := strings.Index(wordAffix, "/")
 
@@ -90,8 +99,9 @@ func (a dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	}
 
 	out = append(out, word)
-	prefixes := make([]affix, 0, 5)
-	suffixes := make([]affix, 0, 5)
+	// Reuse scratch slices to avoid a heap allocation per .dic entry.
+	prefixes := a.prefixScratch[:0]
+	suffixes := a.suffixScratch[:0]
 	for _, key := range keyString {
 		af, ok := a.AffixMap[key]
 		if !ok {
@@ -113,15 +123,20 @@ func (a dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 			suffixes = append(suffixes, af)
 		}
 	}
+	// Save grown slices so future calls benefit from the capacity.
+	a.prefixScratch = prefixes
+	a.suffixScratch = suffixes
 
 	for _, suf := range suffixes {
 		out = suf.expand(word, out)
 	}
 	for _, pre := range prefixes {
-		prewords := pre.expand(word, nil)
-		out = append(out, prewords...)
+		// Reuse prewordScratch for the prefix-expanded forms; the inner suffix
+		// loop only reads it, so it is safe to reuse the same backing array.
+		a.prewordScratch = pre.expand(word, a.prewordScratch[:0])
+		out = append(out, a.prewordScratch...)
 		for _, suf := range suffixes {
-			for _, w := range prewords {
+			for _, w := range a.prewordScratch {
 				out = suf.expand(w, out)
 			}
 		}
@@ -142,7 +157,7 @@ func isCrossProduct(val string) (bool, error) {
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
 		Flag:        "ASCII",
-		AffixMap:    make(map[rune]affix),
+		AffixMap:    make(map[rune]*affix),
 		compoundMap: make(map[rune][]string),
 		CompoundMin: 3,
 	}
@@ -245,12 +260,12 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				if err != nil {
 					return nil, err
 				}
-				a := affix{
+				flag := rune(parts[1][0])
+				// Store a pointer so subsequent rule appends don't need a write-back.
+				aff.AffixMap[flag] = &affix{
 					Type:         atype,
 					CrossProduct: cross,
 				}
-				flag := rune(parts[1][0])
-				aff.AffixMap[flag] = a
 			case 5:
 				flag := rune(parts[1][0])
 				a, ok := aff.AffixMap[flag]
@@ -266,13 +281,12 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				if err != nil {
 					return nil, fmt.Errorf("unable to parse affix pattern %q: %w", pat, err)
 				}
+				// Append directly to the pointed-to affix; no map write-back needed.
 				a.Rules = append(a.Rules, rule{
 					Strip:     strip,
 					AffixText: parts[3],
-					Pattern:   parts[4],
 					matcher:   matcher,
 				})
-				aff.AffixMap[flag] = a
 			default:
 				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
 			}
