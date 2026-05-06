@@ -17,8 +17,8 @@ func SpellFile(gs *GoSpell, raw []byte) []Diff {
 	out := []Diff{}
 
 	rawstring := gs.InputConversion(raw)
-	s := RemoveURL(rawstring)
-	s = RemovePath(s)
+	s := removeURL(rawstring)
+	s = removePath(s)
 
 	for linenum, line := range strings.Split(s, "\n") {
 		words := gs.Split(line)

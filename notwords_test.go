@@ -15,7 +15,7 @@ func TestRemovePath(t *testing.T) {
 		{"/", "/"},
 	}
 	for pos, tt := range cases {
-		got := RemovePath(tt.word)
+		got := removePath(tt.word)
 		if got != tt.want {
 			t.Errorf("%d want %q  got %q", pos, tt.want, got)
 		}
