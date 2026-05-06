@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/client9/gospell/actions/workflows/go.yml/badge.svg)](https://github.com/client9/gospell/actions)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](https://raw.githubusercontent.com/client9/gospell/master/LICENSE)
 
-pure golang spelling dictionary based on hunspell dictionaries.
+Pure golang spelling dictionary based on hunspell dictionary format.
 
 NOTE: I'm not an expert in linguistics nor spelling.  Help is very
 welcome!
@@ -19,12 +19,9 @@ merge it in as an official project, I'd be happy to donate the code
 
 ### Where can I get English dictionaries?
 
-
-
 The world of spelling dictionaries is surprisingly complicated, as
 "lists of words" are frequently proprietary and with conflicting
 software licenses.
-
 
 ### Kevin Atkinson
 
@@ -33,7 +30,6 @@ maintains many open source lists via
 the [SCOWL](http://wordlist.aspell.net) project.  The source code and
 raw lists are available on
 [GitHub `kevina/wordlist`](https://github.com/kevina/wordlist)
-
 
 #### Marco A.G.Pinto
 
@@ -67,3 +63,8 @@ git clone --depth=1 https://chromium.googlesource.com/chromium/deps/hunspell_dic
 ```
 
 More information can be found in the [chromium developer guide](https://www.chromium.org/developers/how-tos/editing-the-spell-checking-dictionaries)
+
+## License
+
+[MIT](/LICENSE)
+
