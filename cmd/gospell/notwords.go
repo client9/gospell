@@ -94,4 +94,3 @@ func enURLChar(c rune) bool {
 func enNotURLChar(c rune) bool {
 	return !enURLChar(c)
 }
-

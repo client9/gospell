@@ -19,4 +19,3 @@ func TestRemovePath(t *testing.T) {
 		}
 	}
 }
-
