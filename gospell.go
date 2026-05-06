@@ -93,23 +93,50 @@ func (s *GoSpell) Spell(word string) bool {
 			return true
 		}
 	}
+
+	// Case-folded fallbacks, matching hunspell semantics.
+	// Words are stored in their dic-file form (one entry each), so we try
+	// progressively simpler case forms only when an exact match fails:
+	//
+	//   titleCase query "Junkyard" → try lowercase "junkyard"
+	//   allUpper  query "JUNKYARD" → try lowercase "junkyard",
+	//                                then title "Junkyard" (for proper nouns like "LONDON")
+	//
+	// allLower and mixedCase queries get no fallback — hunspell rejects
+	// e.g. "london" even when "London" is in the dictionary.
+	switch caseStyle(word) {
+	case titleCase:
+		_, ok := s.dict[strings.ToLower(word)]
+		return ok
+	case allUpper:
+		lower := strings.ToLower(word)
+		if _, ok := s.dict[lower]; ok {
+			return true
+		}
+		// title form: uppercase the first byte, lowercase the rest
+		if len(lower) > 0 {
+			if _, ok := s.dict[strings.ToUpper(lower[:1])+lower[1:]]; ok {
+				return true
+			}
+		}
+	}
 	return false
 }
 
-// insertWord adds word and its case variants to dict.
-// It inlines the caseVariations logic to avoid allocating a []string per word.
-// For allLower words (the common case) it calls strings.ToUpper once, not twice.
-// For allUpper words it skips ToUpper entirely — the word is already uppercase.
+// insertWord stores word in dict using its canonical (dic-file) form.
+// Case variants are NOT pre-generated; Spell's fallback logic handles them at
+// lookup time, matching hunspell's behaviour:
+//   - allLower "junkyard"  → accepts junkyard / Junkyard / JUNKYARD
+//   - titleCase "London"   → accepts London / LONDON  (rejects london)
+//   - allUpper "NASA"      → accepts NASA only
+//   - mixedCase "McDonald" → accepts McDonald / MCDONALD
+//
+// mixedCase is the one exception: its all-caps form is stored explicitly because
+// ToLower("MCDONALD") = "mcdonald", which can't be mapped back to "McDonald"
+// without the original form.
 func insertWord(dict map[string]struct{}, word string) {
 	dict[word] = struct{}{}
-	switch caseStyle(word) {
-	case allLower:
-		upper := strings.ToUpper(word)
-		dict[upper[:1]+word[1:]] = struct{}{} // Title form: first byte uppercased
-		dict[upper] = struct{}{}
-	case allUpper:
-		// word is already fully uppercase; dict[word] above is the only form needed
-	default: // titleCase, mixedCase
+	if caseStyle(word) == mixedCase {
 		dict[strings.ToUpper(word)] = struct{}{}
 	}
 }

@@ -291,3 +291,55 @@ GB
 		}
 	}
 }
+
+// TestSpellCaseFallback verifies that Spell's case-folding matches hunspell's
+// behaviour: case variants are resolved at lookup time rather than pre-stored.
+func TestSpellCaseFallback(t *testing.T) {
+	// "hello" is allLower; "London" is titleCase; "NASA" is allUpper.
+	// "McDonald" is mixedCase — its all-caps form must also be accepted.
+	sampleAff := `
+SET UTF-8
+`
+	sampleDic := `4
+hello
+London
+NASA
+McDonald
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+
+	cases := []struct {
+		word string
+		want bool
+		note string
+	}{
+		// allLower "hello": accepted in all three standard case forms
+		{"hello", true, "allLower exact"},
+		{"Hello", true, "allLower → titleCase fallback"},
+		{"HELLO", true, "allLower → allUpper fallback"},
+		{"hElLo", false, "allLower → mixedCase rejected"},
+
+		// titleCase "London": accepted as-is and in allUpper; lowercase rejected
+		{"London", true, "titleCase exact"},
+		{"LONDON", true, "titleCase → allUpper fallback"},
+		{"london", false, "titleCase → allLower rejected (hunspell behaviour)"},
+
+		// allUpper "NASA": only the exact form accepted
+		{"NASA", true, "allUpper exact"},
+		{"nasa", false, "allUpper → allLower rejected"},
+		{"Nasa", false, "allUpper → titleCase rejected"},
+
+		// mixedCase "McDonald": exact and allUpper accepted
+		{"McDonald", true, "mixedCase exact"},
+		{"MCDONALD", true, "mixedCase → allUpper accepted (stored explicitly)"},
+		{"mcdonald", false, "mixedCase → allLower rejected"},
+	}
+	for _, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%q (%s): got %v, want %v", tt.word, tt.note, got, tt.want)
+		}
+	}
+}
