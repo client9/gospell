@@ -12,10 +12,12 @@ import (
 
 // GoSpell is main struct
 type GoSpell struct {
-	dict      map[string]struct{}
-	ireplacer *strings.Replacer
-	compounds []*regexp.Regexp
-	splitter  *splitter
+	dict        map[string]struct{}
+	maxWordLen  int
+	ireplacer   *strings.Replacer
+	compounds   []*regexp.Regexp
+	splitter    *splitter
+	suggester   Suggestions
 }
 
 // InputConversion does any character substitution before checking
@@ -40,7 +42,58 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 		return false
 	}
 	s.dict[word] = struct{}{}
+	if len(word) > s.maxWordLen {
+		s.maxWordLen = len(word)
+	}
 	return true
+}
+
+// ForEachWord calls fn for every word in the dictionary.
+// Iteration stops early if fn returns false.
+func (s *GoSpell) ForEachWord(fn func(word string) bool) {
+	for word := range s.dict {
+		if !fn(word) {
+			return
+		}
+	}
+}
+
+// HasWord reports whether word exists in the dictionary as an exact entry.
+func (s *GoSpell) HasWord(word string) bool {
+	_, ok := s.dict[word]
+	return ok
+}
+
+// WordCount returns the number of dictionary entries currently loaded.
+func (s *GoSpell) WordCount() int {
+	return len(s.dict)
+}
+
+// MaxWordLen returns the longest loaded dictionary word length.
+func (s *GoSpell) MaxWordLen() int {
+	return s.maxWordLen
+}
+
+// SetSuggester configures the suggestion engine and initializes it from the
+// current dictionary contents.
+func (s *GoSpell) SetSuggester(suggester Suggestions) error {
+	if suggester == nil {
+		s.suggester = nil
+		return nil
+	}
+	if err := suggester.Init(s); err != nil {
+		return err
+	}
+	s.suggester = suggester
+	return nil
+}
+
+// Suggest returns spelling suggestions using the configured suggester.
+func (s *GoSpell) Suggest(word string, limit int) ([]Suggestion, error) {
+	if s.suggester == nil {
+		return nil, fmt.Errorf("no suggester configured")
+	}
+	return s.suggester.Suggest(word, limit)
 }
 
 // AddWordListFile reads a word list file, one word per line.
@@ -176,6 +229,9 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		}
 		for _, word := range words {
 			insertWord(gs.dict, word)
+			if len(word) > gs.maxWordLen {
+				gs.maxWordLen = len(word)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
