@@ -96,6 +96,24 @@ func (s *GoSpell) Spell(word string) bool {
 	return false
 }
 
+// insertWord adds word and its case variants to dict.
+// It inlines the caseVariations logic to avoid allocating a []string per word.
+// For allLower words (the common case) it calls strings.ToUpper once, not twice.
+// For allUpper words it skips ToUpper entirely — the word is already uppercase.
+func insertWord(dict map[string]struct{}, word string) {
+	dict[word] = struct{}{}
+	switch caseStyle(word) {
+	case allLower:
+		upper := strings.ToUpper(word)
+		dict[upper[:1]+word[1:]] = struct{}{} // Title form: first byte uppercased
+		dict[upper] = struct{}{}
+	case allUpper:
+		// word is already fully uppercase; dict[word] above is the only form needed
+	default: // titleCase, mixedCase
+		dict[strings.ToUpper(word)] = struct{}{}
+	}
+}
+
 // NewGoSpellReader creates a GoSpell from io.Readers for Hunspell AFF and DIC data.
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	affix, err := newDictConfig(aff)
@@ -129,14 +147,8 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
-		if len(words) == 0 {
-			continue
-		}
-		style := caseStyle(words[0])
 		for _, word := range words {
-			for _, wordform := range caseVariations(word, style) {
-				gs.dict[wordform] = struct{}{}
-			}
+			insertWord(gs.dict, word)
 		}
 	}
 	if err := scanner.Err(); err != nil {
