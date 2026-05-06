@@ -38,6 +38,9 @@ func main() {
 	listOnly := flag.Bool("l", false, "only print unknown word")
 	lineOnly := flag.Bool("L", false, "print line with unknown word")
 
+	// for testing load time
+	exitOnly := flag.Bool("e", false, "load dictionary and exit")
+
 	dictPath := flag.String("path", ".:/usr/local/share/hunspell:/usr/share/hunspell", "Search path for dictionaries")
 	dicts := flag.String("d", "en_US", "dictionaries to load")
 	personalDict := flag.String("p", "", "personal wordlist file")
@@ -84,6 +87,10 @@ func main() {
 	}
 	log.Printf("Loaded in %v", time.Since(timeStart))
 
+	if *exitOnly {
+		return
+	}
+	
 	if *personalDict != "" {
 		raw, err := os.ReadFile(*personalDict)
 		if err != nil {
