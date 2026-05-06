@@ -6,7 +6,17 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"sort"
 	"strings"
+)
+
+type flagMode int
+
+const (
+	flagASCII flagMode = iota
+	flagLong
+	flagNum
+	flagUTF8
 )
 
 type affixType int
@@ -33,6 +43,7 @@ type expandedWord struct {
 	flags string
 	mask  compoundMask
 	state affixState
+	forbid bool
 }
 
 type compoundMask uint8
@@ -45,19 +56,23 @@ const (
 	compoundEnd
 )
 
+const maxAffixExpansionDepth = 3
+
 const (
 	statePrefix affixState = 1 << iota
 	stateSuffix
 )
 
-func (a affix) expand(word, flags string, state affixState, c compoundRules, out []expandedWord) []expandedWord {
+func (a affix) expand(word, flags string, state affixState, c compoundRules, mode flagMode, out []expandedWord) []expandedWord {
 	for _, r := range a.Rules {
 		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
 		}
 		mask := compoundMask(0)
+		forbid := false
 		if strings.ContainsRune(r.OutFlags, c.Forbid) {
 			mask = 0
+			forbid = true
 		} else if strings.ContainsRune(r.OutFlags, c.Flag) || strings.ContainsRune(r.OutFlags, c.Permit) {
 			mask = compoundBegin | compoundMiddle | compoundEnd
 		} else if a.Type == prefix {
@@ -77,9 +92,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, out
 		if a.Type == prefix {
 			out = append(out, expandedWord{
 				word:  r.AffixText + word,
-				flags: flags + r.OutFlags,
+				flags: appendFlags(flags, r.OutFlags, mode),
 				mask:  mask,
 				state: outState,
+				forbid: forbid,
 			})
 		} else {
 			stripWord := word
@@ -88,9 +104,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, out
 			}
 			out = append(out, expandedWord{
 				word:  stripWord + r.AffixText,
-				flags: flags + r.OutFlags,
+				flags: appendFlags(flags, r.OutFlags, mode),
 				mask:  mask,
 				state: outState,
+				forbid: forbid,
 			})
 		}
 	}
@@ -105,22 +122,23 @@ type rule struct {
 }
 
 type dictConfig struct {
-	Flag              string
+	Flag               string
+	flagMode           flagMode
 	TryChars          string
 	WordChars         string
-	NoSuggestFlag     rune
-	CompoundFlag      rune
+	NoSuggestFlag      string
+	CompoundFlag       rune
 	CompoundPermitFlag rune
 	CompoundForbidFlag rune
 	IconvReplacements []string
 	Replacements      [][2]string
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
-	AffixMap          map[rune]*affix
+	AffixMap          map[string]*affix
 	CompoundMin       int
 	CompoundOnly      string
 	CompoundRule      []string
-	compoundMap       map[rune][]string
+	compoundMap       map[string][]string
 	compoundBeginWords    map[string]struct{}
 	compoundMiddleWords   map[string]struct{}
 	compoundEndWords      map[string]struct{}
@@ -148,105 +166,260 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 		return nil, fmt.Errorf("slash char found in first or last position")
 	}
 	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
-
-	compoundOnly := false
-	for _, key := range keyString {
-		if strings.ContainsRune(a.CompoundOnly, key) {
-			compoundOnly = true
-			continue
-		}
-		if key == a.CompoundFlag || key == a.CompoundPermitFlag || key == a.CompoundForbidFlag {
-			continue
-		}
-		if _, ok := a.compoundMap[key]; !ok {
-			continue
-		}
-		a.compoundMap[key] = append(a.compoundMap[key], word)
+	keys, err := a.splitFlags(a.normalizeFlags(keyString))
+	if err != nil {
+		return nil, err
 	}
-
-	if compoundOnly {
-		a.markCompoundWord(word, compoundBegin|compoundMiddle|compoundEnd, true, false)
-	}
-
-	if !compoundOnly {
-		out = append(out, word)
-	}
-	mask, forbid := a.maskForFlags(keyString)
-	a.markCompoundWord(word, mask, compoundOnly, forbid)
-	// Reuse scratch slices to avoid a heap allocation per .dic entry.
-	prefixes := a.prefixScratch[:0]
-	suffixes := a.suffixScratch[:0]
-	for _, key := range keyString {
-		if strings.ContainsRune(a.CompoundOnly, key) {
-			continue
+	rootMask, _ := a.maskForFlags(keys)
+	rootOnly := false
+	rootForbid := false
+	for _, key := range keys {
+		if a.isCompoundOnlyFlag(key) {
+			rootOnly = true
 		}
-		if key == a.CompoundFlag || key == a.CompoundPermitFlag || key == a.CompoundForbidFlag {
-			continue
-		}
-		af, ok := a.AffixMap[key]
-		if !ok {
-			if _, ok := a.compoundMap[key]; ok {
-				continue
-			}
-			if key == a.NoSuggestFlag {
-				continue
-			}
-			return nil, fmt.Errorf("unable to find affix key %v", key)
-		}
-		if !af.CrossProduct {
-			expanded := af.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
-			for _, ew := range expanded {
-				a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
-				out = append(out, ew.word)
-			}
-			continue
-		}
-		if af.Type == prefix {
-			prefixes = append(prefixes, af)
-		} else {
-			suffixes = append(suffixes, af)
+		if key == string(a.CompoundForbidFlag) {
+			rootForbid = true
 		}
 	}
-	// Save grown slices so future calls benefit from the capacity.
-	a.prefixScratch = prefixes
-	a.suffixScratch = suffixes
-
-	for _, suf := range suffixes {
-		expanded := suf.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
-		for _, ew := range expanded {
-			a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
-			out = append(out, ew.word)
-		}
-	}
-	for _, pre := range prefixes {
-		// Reuse prewordScratch for the prefix-expanded forms; the inner suffix
-		// loop only reads it, so it is safe to reuse the same backing array.
-		a.prewordScratch = pre.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, a.prewordScratch[:0])
-		for _, ew := range a.prewordScratch {
-			a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
-			out = append(out, ew.word)
-		}
-		for _, suf := range suffixes {
-			for _, ew := range a.prewordScratch {
-				expanded := suf.expand(ew.word, ew.flags, ew.state, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
-				for _, sw := range expanded {
-					a.markCompoundWord(sw.word, sw.mask, compoundOnly, false)
-					out = append(out, sw.word)
-				}
-			}
-		}
+	added := make(map[string]struct{})
+	seen := make(map[string]struct{})
+	if err := a.expandState(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, &out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) maskForFlags(flags string) (compoundMask, bool) {
+func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]struct{}, used map[string]struct{}, seen map[string]struct{}, depth int, out *[]string) error {
+	flags = a.normalizeFlags(flags)
+	keys, err := a.splitFlags(flags)
+	if err != nil {
+		return err
+	}
+	stateKey := a.expandStateKey(word, keys, compoundOnly, currentMask, currentState, explicitForbid)
+	if _, ok := seen[stateKey]; ok {
+		return nil
+	}
+	seen[stateKey] = struct{}{}
+	for _, key := range keys {
+		if _, ok := a.compoundMap[key]; ok {
+			a.compoundMap[key] = append(a.compoundMap[key], word)
+		}
+		if a.isCompoundOnlyFlag(key) {
+			compoundOnly = true
+			continue
+		}
+	}
+	a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
+	if !compoundOnly {
+		if _, ok := added[word]; !ok {
+			*out = append(*out, word)
+			added[word] = struct{}{}
+		}
+	}
+	if depth >= maxAffixExpansionDepth {
+		return nil
+	}
+	applyKeys := func(keys []string, wantType affixType) error {
+		for _, key := range keys {
+			if a.isCompoundOnlyFlag(key) || a.isCompoundRuleFlag(key) {
+				continue
+			}
+			if _, ok := used[key]; ok {
+				continue
+			}
+			af, ok := a.AffixMap[key]
+			if !ok || af.Type != wantType {
+				continue
+			}
+			var expanded []expandedWord
+			expanded = af.expand(word, flags, currentState, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, a.flagMode, expanded[:0])
+			nextUsed := make(map[string]struct{}, len(used)+1)
+			for k := range used {
+				nextUsed[k] = struct{}{}
+			}
+			nextUsed[key] = struct{}{}
+			for _, ew := range expanded {
+				nextOnly := compoundOnly
+				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
+				if err := a.expandState(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, depth+1, out); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := applyKeys(keys, suffix); err != nil {
+		return err
+	}
+	if err := applyKeys(keys, prefix); err != nil {
+		return err
+	}
+	return nil
+}
+
+func appendFlags(base, extra string, mode flagMode) string {
+	return mergeFlags(mode, base, extra)
+}
+
+func (a *dictConfig) expandStateKey(word string, flags []string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool) string {
+	normalized := append([]string(nil), flags...)
+	sort.Strings(normalized)
+	return word + "\x00" + strings.Join(normalized, "\x1f") + "\x00" + strconv.FormatBool(compoundOnly) + "\x00" + strconv.Itoa(int(currentMask)) + "\x00" + strconv.Itoa(int(currentState)) + "\x00" + strconv.FormatBool(explicitForbid)
+}
+
+func (a *dictConfig) normalizeFlags(flags string) string {
+	return mergeFlags(a.flagMode, flags)
+}
+
+func mergeFlags(mode flagMode, parts ...string) string {
+	seen := make(map[string]struct{})
+	var tokens []string
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		var items []string
+		switch mode {
+		case flagNum:
+			items = strings.Split(part, ",")
+		case flagLong:
+			items = make([]string, 0, len(part)/2)
+			for i := 0; i+1 < len(part); i += 2 {
+				items = append(items, part[i:i+2])
+			}
+		default:
+			items = make([]string, 0, len([]rune(part)))
+			for _, r := range part {
+				items = append(items, string(r))
+			}
+		}
+		for _, item := range items {
+			if item == "" {
+				continue
+			}
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			tokens = append(tokens, item)
+		}
+	}
+	sort.Strings(tokens)
+	switch mode {
+	case flagNum:
+		return strings.Join(tokens, ",")
+	case flagLong:
+		return strings.Join(tokens, "")
+	default:
+		return strings.Join(tokens, "")
+	}
+}
+
+func (a *dictConfig) compoundRuleTokens(rule string) []string {
+	var tokens []string
+	switch a.flagMode {
+	case flagLong:
+		for i := 0; i < len(rule); {
+			switch rule[i] {
+			case '(', ')', '+', '?', '*':
+				i++
+			default:
+				if i+1 >= len(rule) {
+					return tokens
+				}
+				tokens = append(tokens, rule[i:i+2])
+				i += 2
+			}
+		}
+	case flagNum:
+		for i := 0; i < len(rule); {
+			switch rule[i] {
+			case '(', ')', '+', '?', '*':
+				i++
+			default:
+				j := i
+				for j < len(rule) {
+					switch rule[j] {
+					case '(', ')', '+', '?', '*':
+						goto doneNum
+					default:
+						j++
+					}
+				}
+			doneNum:
+				tokens = append(tokens, rule[i:j])
+				i = j
+			}
+		}
+	default:
+		for _, r := range rule {
+			switch r {
+			case '(', ')', '+', '?', '*':
+				continue
+			default:
+				tokens = append(tokens, string(r))
+			}
+		}
+	}
+	return tokens
+}
+
+func (a *dictConfig) splitFlags(flags string) ([]string, error) {
+	switch a.flagMode {
+	case flagASCII, flagUTF8:
+		out := make([]string, 0, len(flags))
+		for _, r := range flags {
+			out = append(out, string(r))
+		}
+		return out, nil
+	case flagLong:
+		if len(flags)%2 != 0 {
+			return nil, fmt.Errorf("FLAG long requires an even number of bytes in %q", flags)
+		}
+		out := make([]string, 0, len(flags)/2)
+		for i := 0; i < len(flags); i += 2 {
+			out = append(out, flags[i:i+2])
+		}
+		return out, nil
+	case flagNum:
+		return strings.Split(flags, ","), nil
+	default:
+		return nil, fmt.Errorf("unsupported FLAG mode %q", a.Flag)
+	}
+}
+
+func singleRune(s string) (rune, bool) {
+	r := []rune(s)
+	if len(r) != 1 {
+		return 0, false
+	}
+	return r[0], true
+}
+
+func (a *dictConfig) isCompoundOnlyFlag(flag string) bool {
+	if a.CompoundOnly == "" {
+		return false
+	}
+	return flag == a.CompoundOnly
+}
+
+func (a *dictConfig) isCompoundRuleFlag(flag string) bool {
+	if r, ok := singleRune(flag); ok {
+		return r == a.CompoundFlag || r == a.CompoundPermitFlag || r == a.CompoundForbidFlag
+	}
+	return false
+}
+
+func (a *dictConfig) maskForFlags(flags []string) (compoundMask, bool) {
 	var mask compoundMask
 	for _, key := range flags {
-		switch key {
-		case a.CompoundFlag, a.CompoundPermitFlag:
-			mask |= compoundBegin | compoundMiddle | compoundEnd
-		case a.CompoundForbidFlag:
-			return 0, true
+		if r, ok := singleRune(key); ok {
+			switch r {
+			case a.CompoundFlag, a.CompoundPermitFlag:
+				mask |= compoundBegin | compoundMiddle | compoundEnd
+			case a.CompoundForbidFlag:
+				return 0, true
+			}
 		}
 	}
 	return mask, false
@@ -306,8 +479,9 @@ type matcherCacheKey struct {
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
 		Flag:                  "ASCII",
-		AffixMap:              make(map[rune]*affix),
-		compoundMap:           make(map[rune][]string),
+		flagMode:              flagASCII,
+		AffixMap:              make(map[string]*affix),
+		compoundMap:           make(map[string][]string),
 		compoundBeginWords:    make(map[string]struct{}),
 		compoundMiddleWords:   make(map[string]struct{}),
 		compoundEndWords:      make(map[string]struct{}),
@@ -322,6 +496,10 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
 		parts := strings.Fields(line)
 		if len(parts) == 0 {
 			continue
@@ -405,9 +583,9 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				aff.CompoundRule = make([]string, 0, val)
 			} else {
 				aff.CompoundRule = append(aff.CompoundRule, parts[1])
-				for _, char := range parts[1] {
-					if _, ok := aff.compoundMap[char]; !ok {
-						aff.compoundMap[char] = []string{}
+				for _, token := range aff.compoundRuleTokens(parts[1]) {
+					if _, ok := aff.compoundMap[token]; !ok {
+						aff.compoundMap[token] = []string{}
 					}
 				}
 			}
@@ -415,11 +593,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("NOSUGGEST stanza had %d fields, expected 2", len(parts))
 			}
-			chars := []rune(parts[1])
-			if len(chars) != 1 {
-				return nil, fmt.Errorf("NOSUGGEST stanza had more than one flag: %q", parts[1])
-			}
-			aff.NoSuggestFlag = chars[0]
+			aff.NoSuggestFlag = parts[1]
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))
@@ -430,7 +604,18 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("FLAG stanza had %d, expected 1", len(parts))
 			}
 			aff.Flag = parts[1]
-			return nil, fmt.Errorf("FLAG stanza not yet supported")
+			switch parts[1] {
+			case "ASCII":
+				aff.flagMode = flagASCII
+			case "long":
+				aff.flagMode = flagLong
+			case "num":
+				aff.flagMode = flagNum
+			case "UTF-8":
+				aff.flagMode = flagUTF8
+			default:
+				return nil, fmt.Errorf("unsupported FLAG mode %q", parts[1])
+			}
 		case "PFX", "SFX":
 			atype := prefix
 			if parts[0] == "SFX" {
@@ -442,14 +627,14 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				if err != nil {
 					return nil, err
 				}
-				flag := rune(parts[1][0])
+				flag := parts[1]
 				// Store a pointer so subsequent rule appends don't need a write-back.
 				aff.AffixMap[flag] = &affix{
 					Type:         atype,
 					CrossProduct: cross,
 				}
 			case 5:
-				flag := rune(parts[1][0])
+				flag := parts[1]
 				a, ok := aff.AffixMap[flag]
 				if !ok {
 					return nil, fmt.Errorf("got rules for flag %q but no definition", flag)
@@ -473,6 +658,9 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				affText, outFlags, found := strings.Cut(parts[3], "/")
 				if !found {
 					affText = parts[3]
+				}
+				if affText == "0" {
+					affText = ""
 				}
 				// Append directly to the pointed-to affix; no map write-back needed.
 				a.Rules = append(a.Rules, rule{

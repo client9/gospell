@@ -31,6 +31,7 @@ type GoSpell struct {
 	blockedCompound  map[string]struct{}
 	compoundMin      int
 	maxWordLen       int
+	flagMode         flagMode
 	iconvRules       []iconvRule
 	compounds        []*regexp.Regexp
 	suggester        Suggestions
@@ -225,6 +226,68 @@ func (s *GoSpell) spellExact(word string) bool {
 	return false
 }
 
+func compileCompoundRulePattern(rule string, groups map[string][]string, mode flagMode) (string, error) {
+	var b strings.Builder
+	b.WriteString("^")
+	switch mode {
+	case flagLong:
+		for i := 0; i < len(rule); {
+			switch rule[i] {
+			case '(', ')', '+', '?', '*':
+				b.WriteByte(rule[i])
+				i++
+			default:
+				if i+1 >= len(rule) {
+					return "", fmt.Errorf("compound rule %q has truncated long flag", rule)
+				}
+				token := rule[i : i+2]
+				b.WriteString("(")
+				b.WriteString(strings.Join(groups[token], "|"))
+				b.WriteString(")")
+				i += 2
+			}
+		}
+	case flagNum:
+		for i := 0; i < len(rule); {
+			switch rule[i] {
+			case '(', ')', '+', '?', '*':
+				b.WriteByte(rule[i])
+				i++
+			default:
+				j := i
+				for j < len(rule) {
+					switch rule[j] {
+					case '(', ')', '+', '?', '*':
+						goto numTokenDone
+					default:
+						j++
+					}
+				}
+			numTokenDone:
+				token := rule[i:j]
+				b.WriteString("(")
+				b.WriteString(strings.Join(groups[token], "|"))
+				b.WriteString(")")
+				i = j
+			}
+		}
+	default:
+		for _, r := range rule {
+			switch r {
+			case '(', ')', '+', '?', '*':
+				b.WriteRune(r)
+			default:
+				token := string(r)
+				b.WriteString("(")
+				b.WriteString(strings.Join(groups[token], "|"))
+				b.WriteString(")")
+			}
+		}
+	}
+	b.WriteString("$")
+	return b.String(), nil
+}
+
 func (s *GoSpell) spellCompound(word string) bool {
 	runes := []rune(word)
 	if len(runes) < 2*s.compoundMin {
@@ -408,6 +471,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		compoundMiddle:   affix.compoundMiddleWords,
 		compoundEnd:      affix.compoundEndWords,
 		compoundMin:      affix.CompoundMin,
+		flagMode:         affix.flagMode,
 		compounds:         make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
@@ -436,17 +500,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	for _, compoundRule := range affix.CompoundRule {
-		pattern := "^"
-		for _, key := range compoundRule {
-			switch key {
-			case '(', ')', '+', '?', '*':
-				pattern = pattern + string(key)
-			default:
-				groups := affix.compoundMap[key]
-				pattern = pattern + "(" + strings.Join(groups, "|") + ")"
-			}
+		pattern, err := compileCompoundRulePattern(compoundRule, affix.compoundMap, affix.flagMode)
+		if err != nil {
+			return nil, err
 		}
-		pattern = pattern + "$"
 		pat, err := regexp.Compile(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("unable to compile compound rule %q: %w", pattern, err)

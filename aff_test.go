@@ -63,7 +63,7 @@ COMPOUNDMIN 2
 	if len(aff.AffixMap) != 2 {
 		t.Errorf("AffixMap is wrong size")
 	}
-	a, ok := aff.AffixMap[rune('A')]
+	a, ok := aff.AffixMap["A"]
 	if !ok {
 		t.Fatalf("Didn't get Affix for A")
 	}
@@ -74,7 +74,7 @@ COMPOUNDMIN 2
 		t.Fatalf("A Affix should be a cross product")
 	}
 
-	variations := a.expand("define", "", 0, compoundRules{}, nil)
+	variations := a.expand("define", "", 0, compoundRules{}, flagASCII, nil)
 	if len(variations) != 1 {
 		t.Fatalf("Expected 1 variation got %d", len(variations))
 	}
@@ -82,7 +82,7 @@ COMPOUNDMIN 2
 		t.Errorf("Expected %s got %s", "redefine", variations[0].word)
 	}
 
-	a, ok = aff.AffixMap[rune('D')]
+	a, ok = aff.AffixMap["D"]
 	if !ok {
 		t.Fatalf("Didn't get Affix for D")
 	}
@@ -92,7 +92,7 @@ COMPOUNDMIN 2
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
 	}
-	variations = a.expand("accept", "", 0, compoundRules{}, nil)
+	variations = a.expand("accept", "", 0, compoundRules{}, flagASCII, nil)
 	if len(variations) != 1 {
 		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
 	}
@@ -128,7 +128,7 @@ SFX B y ied y
 	}{
 		{"hello", []string{"hello"}},
 		{"try/B", []string{"try", "tried"}},
-		{"work/AB", []string{"work", "worked", "rework", "reworked"}},
+		{"work/AB", []string{"work", "worked", "reworked", "rework"}},
 	}
 	for pos, tt := range cases {
 		got, err := aff.expand(tt.word, nil)
@@ -369,6 +369,39 @@ bar/XPS
 	}
 }
 
+func TestCompoundAffixRegression(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDFLAG X
+
+PFX P Y 1
+PFX P   0     pre         .
+
+SFX S Y 1
+SFX S   0     suf         .
+`
+	sampleDic := `2
+foo/XPS
+bar/XPS
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foosufbar", false},
+		{"prefoobarsuf", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestCompoundForbidFlags(t *testing.T) {
 	sampleAff := `
 SET UTF-8
@@ -405,6 +438,40 @@ bar/XPS
 		{"foosufprebar", false},
 		{"fooprebarsuf", false},
 		{"prefooprebarsuf", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundForbidRegression(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDFLAG X
+COMPOUNDPERMITFLAG Y
+COMPOUNDFORBIDFLAG Z
+
+SFX S Y 2
+SFX S   0     bar/YX         .
+SFX S   0     baz/YX         .
+`
+	sampleDic := `3
+foo/S
+example/X
+foobaz/Z
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foobaz", true},
+		{"foobazexample", false},
 	}
 	for pos, tt := range cases {
 		if got := gs.Spell(tt.word); got != tt.want {
