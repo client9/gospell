@@ -154,6 +154,13 @@ func isCrossProduct(val string) (bool, error) {
 	return false, fmt.Errorf("CrossProduct is not Y or N: got %q", val)
 }
 
+// matcherCacheKey identifies a unique affixMatcher by its pattern string and
+// whether it is used as a prefix or suffix matcher.
+type matcherCacheKey struct {
+	pat      string
+	isPrefix bool
+}
+
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
 		Flag:        "ASCII",
@@ -161,6 +168,10 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 		compoundMap: make(map[rune][]string),
 		CompoundMin: 3,
 	}
+	// Many affix rules share the same condition pattern (e.g. ".", "e",
+	// "[^aeiou]y"). Cache parsed matchers so each unique (pattern, type) pair
+	// is only allocated once during loading.
+	matcherCache := make(map[matcherCacheKey]*affixMatcher)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -277,9 +288,16 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 					strip = parts[2]
 				}
 				pat := parts[4]
-				matcher, err := parseAffixPattern(pat, a.Type == prefix)
-				if err != nil {
-					return nil, fmt.Errorf("unable to parse affix pattern %q: %w", pat, err)
+				isPrefix := a.Type == prefix
+				cacheKey := matcherCacheKey{pat, isPrefix}
+				matcher, cached := matcherCache[cacheKey]
+				if !cached {
+					var err error
+					matcher, err = parseAffixPattern(pat, isPrefix)
+					if err != nil {
+						return nil, fmt.Errorf("unable to parse affix pattern %q: %w", pat, err)
+					}
+					matcherCache[cacheKey] = matcher
 				}
 				// Append directly to the pointed-to affix; no map write-back needed.
 				a.Rules = append(a.Rules, rule{
