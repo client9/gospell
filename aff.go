@@ -22,19 +22,76 @@ type affix struct {
 	Rules        []rule
 }
 
-func (a affix) expand(word string, out []string) []string {
+type compoundRules struct {
+	Flag   rune
+	Permit rune
+	Forbid rune
+}
+
+type expandedWord struct {
+	word  string
+	flags string
+	mask  compoundMask
+	state affixState
+}
+
+type compoundMask uint8
+
+type affixState uint8
+
+const (
+	compoundBegin compoundMask = 1 << iota
+	compoundMiddle
+	compoundEnd
+)
+
+const (
+	statePrefix affixState = 1 << iota
+	stateSuffix
+)
+
+func (a affix) expand(word, flags string, state affixState, c compoundRules, out []expandedWord) []expandedWord {
 	for _, r := range a.Rules {
 		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
 		}
+		mask := compoundMask(0)
+		if strings.ContainsRune(r.OutFlags, c.Forbid) {
+			mask = 0
+		} else if strings.ContainsRune(r.OutFlags, c.Flag) || strings.ContainsRune(r.OutFlags, c.Permit) {
+			mask = compoundBegin | compoundMiddle | compoundEnd
+		} else if a.Type == prefix {
+			mask = compoundBegin
+		} else {
+			mask = compoundEnd
+		}
+		var outState affixState
 		if a.Type == prefix {
-			out = append(out, r.AffixText+word)
+			outState = state | statePrefix
+		} else {
+			outState = state | stateSuffix
+		}
+		if outState == statePrefix|stateSuffix && !strings.ContainsRune(r.OutFlags, c.Flag) && !strings.ContainsRune(r.OutFlags, c.Permit) {
+			mask = 0
+		}
+		if a.Type == prefix {
+			out = append(out, expandedWord{
+				word:  r.AffixText + word,
+				flags: flags + r.OutFlags,
+				mask:  mask,
+				state: outState,
+			})
 		} else {
 			stripWord := word
 			if r.Strip != "" && strings.HasSuffix(word, r.Strip) {
 				stripWord = word[:len(word)-len(r.Strip)]
 			}
-			out = append(out, stripWord+r.AffixText)
+			out = append(out, expandedWord{
+				word:  stripWord + r.AffixText,
+				flags: flags + r.OutFlags,
+				mask:  mask,
+				state: outState,
+			})
 		}
 	}
 	return out
@@ -43,6 +100,7 @@ func (a affix) expand(word string, out []string) []string {
 type rule struct {
 	Strip     string
 	AffixText string
+	OutFlags  string
 	matcher   *affixMatcher
 }
 
@@ -51,6 +109,9 @@ type dictConfig struct {
 	TryChars          string
 	WordChars         string
 	NoSuggestFlag     rune
+	CompoundFlag      rune
+	CompoundPermitFlag rune
+	CompoundForbidFlag rune
 	IconvReplacements []string
 	Replacements      [][2]string
 	// AffixMap stores pointers so appending rules in newDictConfig never
@@ -60,11 +121,15 @@ type dictConfig struct {
 	CompoundOnly      string
 	CompoundRule      []string
 	compoundMap       map[rune][]string
-	compoundOnlyWords map[string]struct{}
+	compoundBeginWords    map[string]struct{}
+	compoundMiddleWords   map[string]struct{}
+	compoundEndWords      map[string]struct{}
+	compoundForbiddenWords map[string]struct{}
+	compoundOnlyWords     map[string]struct{}
 	// Scratch slices reused across expand calls to avoid per-entry allocations.
 	prefixScratch  []*affix
 	suffixScratch  []*affix
-	prewordScratch []string
+	prewordScratch []expandedWord
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
@@ -90,6 +155,9 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 			compoundOnly = true
 			continue
 		}
+		if key == a.CompoundFlag || key == a.CompoundPermitFlag || key == a.CompoundForbidFlag {
+			continue
+		}
 		if _, ok := a.compoundMap[key]; !ok {
 			continue
 		}
@@ -97,18 +165,24 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	}
 
 	if compoundOnly {
-		if a.compoundOnlyWords == nil {
-			a.compoundOnlyWords = make(map[string]struct{})
-		}
-		a.compoundOnlyWords[word] = struct{}{}
-		return out, nil
+		a.markCompoundWord(word, compoundBegin|compoundMiddle|compoundEnd, true, false)
 	}
 
-	out = append(out, word)
+	if !compoundOnly {
+		out = append(out, word)
+	}
+	mask, forbid := a.maskForFlags(keyString)
+	a.markCompoundWord(word, mask, compoundOnly, forbid)
 	// Reuse scratch slices to avoid a heap allocation per .dic entry.
 	prefixes := a.prefixScratch[:0]
 	suffixes := a.suffixScratch[:0]
 	for _, key := range keyString {
+		if strings.ContainsRune(a.CompoundOnly, key) {
+			continue
+		}
+		if key == a.CompoundFlag || key == a.CompoundPermitFlag || key == a.CompoundForbidFlag {
+			continue
+		}
 		af, ok := a.AffixMap[key]
 		if !ok {
 			if _, ok := a.compoundMap[key]; ok {
@@ -120,7 +194,11 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 			return nil, fmt.Errorf("unable to find affix key %v", key)
 		}
 		if !af.CrossProduct {
-			out = af.expand(word, out)
+			expanded := af.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
+			for _, ew := range expanded {
+				a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
+				out = append(out, ew.word)
+			}
 			continue
 		}
 		if af.Type == prefix {
@@ -134,20 +212,78 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	a.suffixScratch = suffixes
 
 	for _, suf := range suffixes {
-		out = suf.expand(word, out)
+		expanded := suf.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
+		for _, ew := range expanded {
+			a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
+			out = append(out, ew.word)
+		}
 	}
 	for _, pre := range prefixes {
 		// Reuse prewordScratch for the prefix-expanded forms; the inner suffix
 		// loop only reads it, so it is safe to reuse the same backing array.
-		a.prewordScratch = pre.expand(word, a.prewordScratch[:0])
-		out = append(out, a.prewordScratch...)
+		a.prewordScratch = pre.expand(word, keyString, 0, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, a.prewordScratch[:0])
+		for _, ew := range a.prewordScratch {
+			a.markCompoundWord(ew.word, ew.mask, compoundOnly, false)
+			out = append(out, ew.word)
+		}
 		for _, suf := range suffixes {
-			for _, w := range a.prewordScratch {
-				out = suf.expand(w, out)
+			for _, ew := range a.prewordScratch {
+				expanded := suf.expand(ew.word, ew.flags, ew.state, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, nil)
+				for _, sw := range expanded {
+					a.markCompoundWord(sw.word, sw.mask, compoundOnly, false)
+					out = append(out, sw.word)
+				}
 			}
 		}
 	}
 	return out, nil
+}
+
+func (a *dictConfig) maskForFlags(flags string) (compoundMask, bool) {
+	var mask compoundMask
+	for _, key := range flags {
+		switch key {
+		case a.CompoundFlag, a.CompoundPermitFlag:
+			mask |= compoundBegin | compoundMiddle | compoundEnd
+		case a.CompoundForbidFlag:
+			return 0, true
+		}
+	}
+	return mask, false
+}
+
+func (a *dictConfig) markCompoundWord(word string, mask compoundMask, compoundOnly bool, explicitForbid bool) {
+	if compoundOnly {
+		if a.compoundOnlyWords == nil {
+			a.compoundOnlyWords = make(map[string]struct{})
+		}
+		a.compoundOnlyWords[word] = struct{}{}
+		return
+	}
+	if explicitForbid {
+		delete(a.compoundBeginWords, word)
+		delete(a.compoundMiddleWords, word)
+		delete(a.compoundEndWords, word)
+		return
+	}
+	if mask&compoundBegin != 0 {
+		if a.compoundBeginWords == nil {
+			a.compoundBeginWords = make(map[string]struct{})
+		}
+		a.compoundBeginWords[word] = struct{}{}
+	}
+	if mask&compoundMiddle != 0 {
+		if a.compoundMiddleWords == nil {
+			a.compoundMiddleWords = make(map[string]struct{})
+		}
+		a.compoundMiddleWords[word] = struct{}{}
+	}
+	if mask&compoundEnd != 0 {
+		if a.compoundEndWords == nil {
+			a.compoundEndWords = make(map[string]struct{})
+		}
+		a.compoundEndWords[word] = struct{}{}
+	}
 }
 
 func isCrossProduct(val string) (bool, error) {
@@ -169,11 +305,15 @@ type matcherCacheKey struct {
 
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
-		Flag:              "ASCII",
-		AffixMap:          make(map[rune]*affix),
-		compoundMap:       make(map[rune][]string),
-		compoundOnlyWords: make(map[string]struct{}),
-		CompoundMin:       3,
+		Flag:                  "ASCII",
+		AffixMap:              make(map[rune]*affix),
+		compoundMap:           make(map[rune][]string),
+		compoundBeginWords:    make(map[string]struct{}),
+		compoundMiddleWords:   make(map[string]struct{}),
+		compoundEndWords:      make(map[string]struct{}),
+		compoundForbiddenWords: make(map[string]struct{}),
+		compoundOnlyWords:      make(map[string]struct{}),
+		CompoundMin:            3,
 	}
 	// Many affix rules share the same condition pattern (e.g. ".", "e",
 	// "[^aeiou]y"). Cache parsed matchers so each unique (pattern, type) pair
@@ -229,6 +369,33 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("ONLYINCOMPOUND stanza had %d fields, expected 2", len(parts))
 			}
 			aff.CompoundOnly = parts[1]
+		case "COMPOUNDFLAG":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDFLAG stanza had %d fields, expected 2", len(parts))
+			}
+			r := []rune(parts[1])
+			if len(r) != 1 {
+				return nil, fmt.Errorf("COMPOUNDFLAG stanza had more than one flag: %q", parts[1])
+			}
+			aff.CompoundFlag = r[0]
+		case "COMPOUNDPERMITFLAG":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDPERMITFLAG stanza had %d fields, expected 2", len(parts))
+			}
+			r := []rune(parts[1])
+			if len(r) != 1 {
+				return nil, fmt.Errorf("COMPOUNDPERMITFLAG stanza had more than one flag: %q", parts[1])
+			}
+			aff.CompoundPermitFlag = r[0]
+		case "COMPOUNDFORBIDFLAG":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDFORBIDFLAG stanza had %d fields, expected 2", len(parts))
+			}
+			r := []rune(parts[1])
+			if len(r) != 1 {
+				return nil, fmt.Errorf("COMPOUNDFORBIDFLAG stanza had more than one flag: %q", parts[1])
+			}
+			aff.CompoundForbidFlag = r[0]
 		case "COMPOUNDRULE":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDRULE stanza had %d fields, expected 2", len(parts))
@@ -303,10 +470,15 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 					}
 					matcherCache[cacheKey] = matcher
 				}
+				affText, outFlags, found := strings.Cut(parts[3], "/")
+				if !found {
+					affText = parts[3]
+				}
 				// Append directly to the pointed-to affix; no map write-back needed.
 				a.Rules = append(a.Rules, rule{
 					Strip:     strip,
-					AffixText: parts[3],
+					AffixText: affText,
+					OutFlags:  outFlags,
 					matcher:   matcher,
 				})
 			default:

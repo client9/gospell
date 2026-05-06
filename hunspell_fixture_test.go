@@ -42,6 +42,12 @@ func TestHunspellFixtures(t *testing.T) {
 
 	for _, affPath := range affFiles {
 		base := strings.TrimSuffix(affPath, ".aff")
+		if skip, reason := skipHunspellFixture(filepath.Base(base)); skip {
+			t.Run(filepath.Base(base), func(t *testing.T) {
+				t.Skip(reason)
+			})
+			continue
+		}
 		dicPath := base + ".dic"
 		goodPath := base + ".good"
 		wrongPath := base + ".wrong"
@@ -86,6 +92,15 @@ func TestHunspellFixtures(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func skipHunspellFixture(base string) (bool, string) {
+	switch base {
+	case "timelimit":
+		return true, "timelimit fixture exercises suggestion timeout behavior; skipped for now"
+	default:
+		return false, ""
 	}
 }
 

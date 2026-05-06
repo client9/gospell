@@ -74,12 +74,12 @@ COMPOUNDMIN 2
 		t.Fatalf("A Affix should be a cross product")
 	}
 
-	variations := a.expand("define", nil)
+	variations := a.expand("define", "", 0, compoundRules{}, nil)
 	if len(variations) != 1 {
 		t.Fatalf("Expected 1 variation got %d", len(variations))
 	}
-	if variations[0] != "redefine" {
-		t.Errorf("Expected %s got %s", "redefine", variations[0])
+	if variations[0].word != "redefine" {
+		t.Errorf("Expected %s got %s", "redefine", variations[0].word)
 	}
 
 	a, ok = aff.AffixMap[rune('D')]
@@ -92,12 +92,12 @@ COMPOUNDMIN 2
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
 	}
-	variations = a.expand("accept", nil)
+	variations = a.expand("accept", "", 0, compoundRules{}, nil)
 	if len(variations) != 1 {
 		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
 	}
-	if variations[0] != "accepted" {
-		t.Errorf("Expected %s got %s", "accepted", variations[0])
+	if variations[0].word != "accepted" {
+		t.Errorf("Expected %s got %s", "accepted", variations[0].word)
 	}
 }
 
@@ -294,6 +294,125 @@ WORDCHARS 0123456789
 	}
 }
 
+func TestCompoundFlagFixtures(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDMIN 3
+COMPOUNDFLAG A
+`
+	sampleDic := `4
+foo/A
+bar/A
+xy/A
+yz/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foobar", true},
+		{"barfoo", true},
+		{"foobarfoo", true},
+		{"xyyz", false},
+		{"fooxy", false},
+		{"xyfoo", false},
+		{"fooxybar", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundAffixFlags(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDFLAG X
+COMPOUNDPERMITFLAG Y
+
+PFX P Y 1
+PFX P   0     pre/Y         .
+
+SFX S Y 1
+SFX S   0     suf/Y         .
+`
+	sampleDic := `2
+foo/XPS
+bar/XPS
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"prefoo", true},
+		{"foosuf", true},
+		{"prefoosuf", true},
+		{"prefoobarsuf", true},
+		{"foosufbar", true},
+		{"fooprebarsuf", true},
+		{"prefooprebarsuf", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundForbidFlags(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDFLAG X
+COMPOUNDPERMITFLAG Y
+COMPOUNDFORBIDFLAG Z
+
+PFX P Y 1
+PFX P   0     pre/Z         .
+
+SFX S Y 1
+SFX S   0     suf/Z         .
+`
+	sampleDic := `2
+foo/XPS
+bar/XPS
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"foofoo", true},
+		{"prefoo", true},
+		{"foosuf", true},
+		{"prefoosuf", true},
+		{"prefoobarsuf", false},
+		{"foosufbar", false},
+		{"fooprebar", false},
+		{"foosufprebar", false},
+		{"fooprebarsuf", false},
+		{"prefooprebarsuf", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestDigitsInWordsCompoundRule(t *testing.T) {
 	sampleAff := `
 SET UTF-8
@@ -438,6 +557,82 @@ McDonald
 	for _, tt := range cases {
 		if got := gs.Spell(tt.word); got != tt.want {
 			t.Errorf("%q (%s): got %v, want %v", tt.word, tt.note, got, tt.want)
+		}
+	}
+}
+
+func TestIconvSpell(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+
+ICONV 4
+ICONV ş ș
+ICONV ţ ț
+ICONV Ş Ș
+ICONV Ţ Ț
+`
+	sampleDic := `4
+Chișinău
+Țepes
+ț
+Ș
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"Chișinău", true},
+		{"Chişinău", true},
+		{"Țepes", true},
+		{"Ţepes", true},
+		{"Ş", true},
+		{"ţ", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestIconvLongestMatch(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+
+ICONV 6
+ICONV Da DA
+ICONV Ga GA
+ICONV Gag GAG
+ICONV Gagg GAGG
+ICONV Na NA
+ICONV Nan NAN
+`
+	sampleDic := `4
+GAG
+GAGGNA
+GANA
+NANDA
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"GaNa", true},
+		{"Gag", true},
+		{"GaggNa", true},
+		{"NanDa", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
 		}
 	}
 }

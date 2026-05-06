@@ -7,30 +7,62 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var numericTokenRegexp = regexp.MustCompile("^([0-9]+[.,-]?)+$")
 
+type iconvRule struct {
+	old string
+	new string
+}
+
 // GoSpell is main struct
 type GoSpell struct {
-	dict         map[string]struct{}
-	compoundOnly map[string]struct{}
-	maxWordLen   int
-	ireplacer    *strings.Replacer
-	compounds    []*regexp.Regexp
-	suggester    Suggestions
+	dict             map[string]struct{}
+	compoundOnly     map[string]struct{}
+	compoundBegin    map[string]struct{}
+	compoundMiddle   map[string]struct{}
+	compoundEnd      map[string]struct{}
+	compoundForbidden map[string]struct{}
+	blockedCompound  map[string]struct{}
+	compoundMin      int
+	maxWordLen       int
+	iconvRules       []iconvRule
+	compounds        []*regexp.Regexp
+	suggester        Suggestions
 }
 
 // InputConversion does any character substitution before checking
 // based on the ICONV stanza in the AFF file.
 func (s *GoSpell) InputConversion(raw []byte) string {
 	sraw := string(raw)
-	if s.ireplacer == nil {
+	if len(s.iconvRules) == 0 {
 		return sraw
 	}
-	return s.ireplacer.Replace(sraw)
+	var b strings.Builder
+	for i := 0; i < len(sraw); {
+		best := -1
+		bestLen := 0
+		for idx, rule := range s.iconvRules {
+			if strings.HasPrefix(sraw[i:], rule.old) && len(rule.old) > bestLen {
+				best = idx
+				bestLen = len(rule.old)
+			}
+		}
+		if best >= 0 {
+			b.WriteString(s.iconvRules[best].new)
+			i += len(s.iconvRules[best].old)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(sraw[i:])
+		b.WriteRune(r)
+		i += size
+	}
+	return b.String()
 }
 
 // AddWordRaw adds a single word to the internal dictionary without modifications.
@@ -40,6 +72,12 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 		return false
 	}
 	s.dict[word] = struct{}{}
+	if strings.ContainsRune(word, ' ') {
+		if s.blockedCompound == nil {
+			s.blockedCompound = make(map[string]struct{})
+		}
+		s.blockedCompound[strings.ReplaceAll(word, " ", "")] = struct{}{}
+	}
 	if len(word) > s.maxWordLen {
 		s.maxWordLen = len(word)
 	}
@@ -128,6 +166,7 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 
 // Spell reports whether word is correctly spelled.
 func (s *GoSpell) Spell(word string) bool {
+	word = s.InputConversion([]byte(word))
 	if s.spellExact(word) {
 		return true
 	}
@@ -159,13 +198,13 @@ func (s *GoSpell) Spell(word string) bool {
 }
 
 func (s *GoSpell) spellExact(word string) bool {
-	if _, ok := s.dict[word]; ok {
-		return true
-	}
 	if s.compoundOnly != nil {
 		if _, ok := s.compoundOnly[word]; ok {
 			return false
 		}
+	}
+	if _, ok := s.dict[word]; ok {
+		return true
 	}
 	if numericTokenRegexp.MatchString(word) {
 		return true
@@ -175,7 +214,118 @@ func (s *GoSpell) spellExact(word string) bool {
 			return true
 		}
 	}
+	if s.blockedCompound != nil {
+		if _, ok := s.blockedCompound[word]; ok {
+			return false
+		}
+	}
+	if s.spellCompound(word) {
+		return true
+	}
 	return false
+}
+
+func (s *GoSpell) spellCompound(word string) bool {
+	runes := []rune(word)
+	if len(runes) < 2*s.compoundMin {
+		return false
+	}
+	return s.spellCompoundFromRunes(runes)
+}
+
+func (s *GoSpell) spellCompoundFromRunes(runes []rune) bool {
+	if len(runes) < s.compoundMin {
+		return false
+	}
+	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
+		prefix := string(runes[:i])
+		if !s.compoundStartPart(prefix) {
+			continue
+		}
+		suffix := string(runes[i:])
+		if s.compoundFinalPart(suffix) {
+			return true
+		}
+		if s.spellCompoundFromMiddleRunes([]rune(suffix)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) spellCompoundFromMiddleRunes(runes []rune) bool {
+	if len(runes) < s.compoundMin {
+		return false
+	}
+	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
+		prefix := string(runes[:i])
+		if !s.compoundMiddlePart(prefix) {
+			continue
+		}
+		suffix := string(runes[i:])
+		if s.compoundFinalPart(suffix) {
+			return true
+		}
+		if s.spellCompoundFromMiddleRunes([]rune(suffix)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) compoundStartPart(word string) bool {
+	if compoundRuneLen(word) < s.compoundMin {
+		return false
+	}
+	if s.compoundBegin != nil {
+		if _, ok := s.compoundBegin[word]; ok {
+			return true
+		}
+	}
+	if s.compoundOnly != nil {
+		if _, ok := s.compoundOnly[word]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) compoundMiddlePart(word string) bool {
+	if compoundRuneLen(word) < s.compoundMin {
+		return false
+	}
+	if s.compoundMiddle != nil {
+		if _, ok := s.compoundMiddle[word]; ok {
+			return true
+		}
+	}
+	if s.compoundOnly != nil {
+		if _, ok := s.compoundOnly[word]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) compoundFinalPart(word string) bool {
+	if compoundRuneLen(word) < s.compoundMin {
+		return false
+	}
+	if s.compoundOnly != nil {
+		if _, ok := s.compoundOnly[word]; ok {
+			return true
+		}
+	}
+	if s.compoundEnd != nil {
+		if _, ok := s.compoundEnd[word]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func compoundRuneLen(word string) int {
+	return utf8.RuneCountInString(word)
 }
 
 // insertWord stores word in dict using its canonical (dic-file) form.
@@ -252,9 +402,13 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	gs := GoSpell{
-		dict:         make(map[string]struct{}),
-		compoundOnly: affix.compoundOnlyWords,
-		compounds:    make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		dict:             make(map[string]struct{}),
+		compoundOnly:     affix.compoundOnlyWords,
+		compoundBegin:    affix.compoundBeginWords,
+		compoundMiddle:   affix.compoundMiddleWords,
+		compoundEnd:      affix.compoundEndWords,
+		compoundMin:      affix.CompoundMin,
+		compounds:         make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
 	words := []string{}
@@ -266,6 +420,12 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		}
 		for _, word := range words {
 			insertWord(gs.dict, word)
+			if strings.ContainsRune(word, ' ') {
+				if gs.blockedCompound == nil {
+					gs.blockedCompound = make(map[string]struct{})
+				}
+				gs.blockedCompound[strings.ReplaceAll(word, " ", "")] = struct{}{}
+			}
 			if len(word) > gs.maxWordLen {
 				gs.maxWordLen = len(word)
 			}
@@ -295,7 +455,19 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	if len(affix.IconvReplacements) > 0 {
-		gs.ireplacer = strings.NewReplacer(affix.IconvReplacements...)
+		gs.iconvRules = make([]iconvRule, 0, len(affix.IconvReplacements)/2)
+		for i := 0; i+1 < len(affix.IconvReplacements); i += 2 {
+			gs.iconvRules = append(gs.iconvRules, iconvRule{
+				old: affix.IconvReplacements[i],
+				new: affix.IconvReplacements[i+1],
+			})
+		}
+		sort.SliceStable(gs.iconvRules, func(i, j int) bool {
+			if len(gs.iconvRules[i].old) == len(gs.iconvRules[j].old) {
+				return i < j
+			}
+			return len(gs.iconvRules[i].old) > len(gs.iconvRules[j].old)
+		})
 	}
 	return &gs, nil
 }
