@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	// "log"
 )
 
 type affixType int
@@ -162,6 +163,14 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("TRY stanza had %d fields, expected 2", len(parts))
 			}
 			aff.TryChars = parts[1]
+		case "SET":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("SET stanza had %d fields, expected 2", len(parts))
+			}
+			if parts[1] != "UTF-8" {
+				return nil, fmt.Errorf("SET had non-UTF-8 character encoding of %q -- not supported", parts[1])
+			}
+			// UTF-8 - nothing to do
 		case "ICONV":
 			if len(parts) == 2 {
 				continue
@@ -267,6 +276,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 					if err != nil {
 						return nil, fmt.Errorf("unable to compile %s", pat)
 					}
+					//log.Printf("compiled regexp %q", pat)
 				}
 				a.Rules = append(a.Rules, rule{
 					Strip:     strip,
@@ -279,7 +289,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
 			}
 		default:
-			// nothing
+			return nil, fmt.Errorf("unknown command %v", parts)
 		}
 	}
 
