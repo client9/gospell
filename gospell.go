@@ -532,7 +532,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		return nil, err
 	}
 	if set == "" {
-		set = "UTF-8"
+		set = "ISO8859-1"
 	}
 	enc, ok := encodingForSET(set)
 	if !ok {

@@ -1,6 +1,7 @@
 package gospell
 
 import (
+	"bytes"
 	"reflect"
 	"sort"
 	"strings"
@@ -635,6 +636,41 @@ last/c
 	}{
 		{"firstmiddlelast", true},
 		{"lastmiddlefirst", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundPatternDefaultLatin1Regression(t *testing.T) {
+	sampleAff := []byte(`
+# forbid compounds with spec. pattern at word bounds
+COMPOUNDFLAG A
+CHECKCOMPOUNDPATTERN 2
+CHECKCOMPOUNDPATTERN nny ny
+CHECKCOMPOUNDPATTERN ssz sz
+`)
+	sampleDic := []byte{
+		'4', '\n',
+		'k', 0xf6, 'n', 'n', 'y', '/', 'A', '\n',
+		'n', 'y', 'e', 'l', 0xe9, 's', '/', 'A', '\n',
+		'h', 'o', 's', 's', 'z', '/', 'A', '\n',
+		's', 'z', 0xe1, 'm', 0xed, 't', 0xe1, 's', '/', 'A', '\n',
+	}
+	gs, err := NewGoSpellReader(bytes.NewReader(sampleAff), bytes.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"könnyszámítás", true},
+		{"hossznyelés", true},
+		{"könnynyelés", false},
+		{"hosszszámítás", false},
 	}
 	for pos, tt := range cases {
 		if got := gs.Spell(tt.word); got != tt.want {
