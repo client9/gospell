@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/naoina/toml"
 	glob "github.com/ryanuber/go-glob"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -56,7 +55,7 @@ func (fs *FileSet) visit(path string, info os.FileInfo, err error) error {
 	}
 	excluded := false
 	for _, exc := range fs.Exclude {
-		if strings.Index(path, exc) != -1 {
+		if strings.Contains(path, exc) {
 			excluded = true
 			break
 		}
@@ -79,7 +78,7 @@ func (fs *FileSet) visit(path string, info os.FileInfo, err error) error {
 }
 
 func main() {
-	config, err := ioutil.ReadFile(".spelling.toml")
+	config, err := os.ReadFile(".spelling.toml")
 	if err != nil {
 		log.Fatalf("Unable to reading config: %s", err)
 	}
@@ -127,9 +126,11 @@ func main() {
 		if fs.Path == "" {
 			fs.Path = "."
 		}
-		filepath.Walk(fs.Path, fs.visit)
+		if err := filepath.Walk(fs.Path, fs.visit); err != nil {
+			log.Printf("walk failed on %q: %s", fs.Path, err)
+		}
 		for _, filename := range fs.Matches {
-			raw, err := ioutil.ReadFile(filename)
+			raw, err := os.ReadFile(filename)
 			if err != nil {
 				log.Printf("Unable to read %q: %s", filename, err)
 				finalExit = finalExit | 2
@@ -141,7 +142,6 @@ func main() {
 			}
 			out := gospell.SpellFile(gs, pt, raw)
 			for _, diff := range out {
-				diff.Filename = filepath.Base(filename)
 				diff.Path = filename
 				finalExit = finalExit | 1
 				log.Printf("Got a %s:%d %s", diff.Path, diff.LineNum, diff.Original)

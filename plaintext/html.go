@@ -5,25 +5,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-var blockTag = map[string]struct{}{
-	"br":         {},
-	"h1":         {},
-	"h2":         {},
-	"h3":         {},
-	"h4":         {},
-	"h5":         {},
-	"pre":        {},
-	"li":         {},
-	"p":          {},
-	"div":        {},
-	"blockquote": {},
-}
-
-func isBlock(tag []byte) bool {
-	_, ok := blockTag[string(tag)]
-	return ok
-}
-
 // count number of newlines in a text block
 func countNewlines(raw []byte) int {
 	count := 0

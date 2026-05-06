@@ -56,7 +56,7 @@ func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer fd.Close()
+	defer func() { _ = fd.Close() }()
 	return s.AddWordList(fd)
 }
 
@@ -172,7 +172,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		line := scanner.Text()
 		words, err = affix.Expand(line, words)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to process %q: %s", line, err)
+			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
 
 		if len(words) == 0 {
@@ -223,14 +223,14 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 func NewGoSpell(affFile, dicFile string) (*GoSpell, error) {
 	aff, err := os.Open(affFile)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to open aff: %s", err)
+		return nil, fmt.Errorf("unable to open aff: %s", err)
 	}
-	defer aff.Close()
+	defer func() { _ = aff.Close() }()
 	dic, err := os.Open(dicFile)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to open dic: %s", err)
+		return nil, fmt.Errorf("unable to open dic: %s", err)
 	}
-	defer dic.Close()
+	defer func() { _ = dic.Close() }()
 	h, err := NewGoSpellReader(aff, dic)
 	return h, err
 }

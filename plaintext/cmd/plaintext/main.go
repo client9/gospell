@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 
@@ -20,31 +20,37 @@ func main() {
 
 	// stdin support
 	if len(args) == 0 {
-		raw, err := ioutil.ReadAll(os.Stdin)
+		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
-		md, err := plaintext.ExtractorByFilename("stdin" + *extension)
+		md, err := plaintext.ExtractorByFilename("stdin" + ext)
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
 
 		raw = plaintext.StripTemplate(raw)
-		os.Stdout.Write(md.Text(raw))
+		if _, err := os.Stdout.Write(md.Text(raw)); err != nil {
+			log.Fatalf("Unable to write: %s", err)
+		}
 	}
 
 	for _, arg := range args {
-		raw, err := ioutil.ReadFile(arg)
+		raw, err := os.ReadFile(arg)
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		md, err := plaintext.ExtractorByFilename(arg + *extension)
+		md, err := plaintext.ExtractorByFilename(arg + ext)
 		if err != nil {
 			log.Fatalf("Unable to create parser: %s", err)
 		}
 
 		raw = plaintext.StripTemplate(raw)
-		os.Stdout.Write(md.Text(raw))
-		os.Stdout.Write([]byte{'\n'})
+		if _, err := os.Stdout.Write(md.Text(raw)); err != nil {
+			log.Fatalf("Unable to write: %s", err)
+		}
+		if _, err := os.Stdout.Write([]byte{'\n'}); err != nil {
+			log.Fatalf("Unable to write: %s", err)
+		}
 	}
 }

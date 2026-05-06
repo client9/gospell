@@ -82,7 +82,7 @@ func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 		return out, nil
 	}
 	if idx == 0 || idx+1 == len(wordAffix) {
-		return nil, fmt.Errorf("Slash char found in first or last position")
+		return nil, fmt.Errorf("slash char found in first or last position")
 	}
 	// safe
 	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
@@ -91,7 +91,7 @@ func (a DictConfig) Expand(wordAffix string, out []string) ([]string, error) {
 	// "compound only".  If so then nothing to add
 	compoundOnly := false
 	for _, key := range keyString {
-		if strings.IndexRune(a.CompoundOnly, key) != -1 {
+		if strings.ContainsRune(a.CompoundOnly, key) {
 			compoundOnly = true
 			continue
 		}
@@ -284,7 +284,7 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 				flag := rune(parts[1][0])
 				a, ok := aff.AffixMap[flag]
 				if !ok {
-					return nil, fmt.Errorf("Got rules for flag %q but no definition", flag)
+					return nil, fmt.Errorf("got rules for flag %q but no definition", flag)
 				}
 
 				strip := ""
@@ -303,7 +303,7 @@ func NewDictConfig(file io.Reader) (*DictConfig, error) {
 					}
 					matcher, err = regexp.Compile(pat)
 					if err != nil {
-						return nil, fmt.Errorf("Unable to compile %s", pat)
+						return nil, fmt.Errorf("unable to compile %s", pat)
 					}
 				}
 

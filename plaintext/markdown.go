@@ -66,16 +66,16 @@ func cleanupLine(s []byte) []byte {
 
 	// there is no reason to NOT replace `*` `~` or `_` with a space character
 	// not used in words
-	s = bytes.Replace(s, []byte{'*'}, nil, -1)
-	s = bytes.Replace(s, []byte{'~'}, nil, -1)
-	s = bytes.Replace(s, []byte{'_'}, nil, -1)
+	s = bytes.ReplaceAll(s, []byte{'*'}, nil)
+	s = bytes.ReplaceAll(s, []byte{'~'}, nil)
+	s = bytes.ReplaceAll(s, []byte{'_'}, nil)
 
 	// links. 	[link](/MyURI)
 	// Stuff inside the "link" can be on different lines, but "](/URI)"
 	// is all on one line so we can delete ](....space )
 	// ![ is for images
-	s = bytes.Replace(s, []byte{'!', '['}, nil, -1)
-	s = bytes.Replace(s, []byte{'['}, nil, -1)
+	s = bytes.ReplaceAll(s, []byte{'!', '['}, nil)
+	s = bytes.ReplaceAll(s, []byte{'['}, nil)
 	s = linkTarget.ReplaceAll(s, nil)
 	return s
 }

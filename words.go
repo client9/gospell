@@ -42,7 +42,7 @@ func NewSplitter(chars string) *Splitter {
 	s := Splitter{}
 	s.fn = (func(c rune) bool {
 		// break if it's not a letter, and not another special character
-		return !unicode.IsLetter(c) && -1 == strings.IndexRune(chars, c)
+		return !unicode.IsLetter(c) && !strings.ContainsRune(chars, c)
 	})
 	return &s
 }
@@ -85,10 +85,10 @@ func isHash(s string) bool {
 func splitCamelCase(s string) []string {
 	out := []string{}
 
-	s = strings.Replace(s, "HTTP", "Http", -1)
-	s = strings.Replace(s, "HTML", "Html", -1)
-	s = strings.Replace(s, "URL", "Url", -1)
-	s = strings.Replace(s, "URI", "Uri", -1)
+	s = strings.ReplaceAll(s, "HTTP", "Http")
+	s = strings.ReplaceAll(s, "HTML", "Html")
+	s = strings.ReplaceAll(s, "URL", "Url")
+	s = strings.ReplaceAll(s, "URI", "Uri")
 
 	caps := camelCaseRegexp1.FindAllStringIndex(s, -1)
 

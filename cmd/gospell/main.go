@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -98,7 +98,7 @@ func main() {
 	}
 
 	if *personalDict != "" {
-		raw, err := ioutil.ReadFile(*personalDict)
+		raw, err := os.ReadFile(*personalDict)
 		if err != nil {
 			log.Fatalf("Unable to load personal dictionary %s: %s", *personalDict, err)
 		}
@@ -115,7 +115,7 @@ func main() {
 
 	// stdin support
 	if len(args) == 0 {
-		raw, err := ioutil.ReadAll(os.Stdin)
+		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			log.Fatalf("Unable to read Stdin: %s", err)
 		}
@@ -125,7 +125,9 @@ func main() {
 			diff.Filename = "stdin"
 			diff.Path = ""
 			buf := bytes.Buffer{}
-			defaultLog.Execute(&buf, diff)
+			if err := defaultLog.Execute(&buf, diff); err != nil {
+				log.Printf("template error: %s", err)
+			}
 			// goroutine-safe print to os.Stdout
 			stdout.Println(buf.String())
 		}
@@ -136,7 +138,7 @@ func main() {
 			continue
 		}
 
-		raw, err := ioutil.ReadFile(arg)
+		raw, err := os.ReadFile(arg)
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
@@ -149,7 +151,9 @@ func main() {
 			diff.Filename = filepath.Base(arg)
 			diff.Path = arg
 			buf := bytes.Buffer{}
-			defaultLog.Execute(&buf, diff)
+			if err := defaultLog.Execute(&buf, diff); err != nil {
+				log.Printf("template error: %s", err)
+			}
 			// goroutine-safe print to os.Stdout
 			stdout.Println(buf.String())
 		}
