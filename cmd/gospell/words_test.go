@@ -1,12 +1,12 @@
-package gospell
+package main
 
 import (
 	"reflect"
 	"testing"
 )
 
-func TestSplitter(t *testing.T) {
-	s := newSplitter("012345689")
+func TestSplitWords(t *testing.T) {
+	s := splitWords
 
 	cases := []struct {
 		word string
@@ -19,7 +19,7 @@ func TestSplitter(t *testing.T) {
 	}
 
 	for pos, tt := range cases {
-		got := s.split(tt.word)
+		got := s(tt.word)
 		if !reflect.DeepEqual(tt.want, got) {
 			t.Errorf("%d want %v  got %v", pos, tt.want, got)
 		}

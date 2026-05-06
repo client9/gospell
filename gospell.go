@@ -2,6 +2,7 @@ package gospell
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -10,14 +11,16 @@ import (
 	"strings"
 )
 
+var numericTokenRegexp = regexp.MustCompile("^([0-9]+[.,-]?)+$")
+
 // GoSpell is main struct
 type GoSpell struct {
-	dict       map[string]struct{}
-	maxWordLen int
-	ireplacer  *strings.Replacer
-	compounds  []*regexp.Regexp
-	splitter   *splitter
-	suggester  Suggestions
+	dict         map[string]struct{}
+	compoundOnly map[string]struct{}
+	maxWordLen   int
+	ireplacer    *strings.Replacer
+	compounds    []*regexp.Regexp
+	suggester    Suggestions
 }
 
 // InputConversion does any character substitution before checking
@@ -28,11 +31,6 @@ func (s *GoSpell) InputConversion(raw []byte) string {
 		return sraw
 	}
 	return s.ireplacer.Replace(sraw)
-}
-
-// Split splits text into words using the dictionary's word-character rules.
-func (s *GoSpell) Split(text string) []string {
-	return s.splitter.split(text)
 }
 
 // AddWordRaw adds a single word to the internal dictionary without modifications.
@@ -130,21 +128,8 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 
 // Spell reports whether word is correctly spelled.
 func (s *GoSpell) Spell(word string) bool {
-	if _, ok := s.dict[word]; ok {
+	if s.spellExact(word) {
 		return true
-	}
-	if isNumber(word) || isNumberHex(word) || isNumberBinary(word) || isHash(word) {
-		return true
-	}
-	for _, pat := range s.compounds {
-		if pat.MatchString(word) {
-			return true
-		}
-	}
-	if units := isNumberUnits(word); units != "" {
-		if _, ok := s.dict[units]; ok {
-			return true
-		}
 	}
 
 	// Case-folded fallbacks, matching hunspell semantics.
@@ -159,18 +144,35 @@ func (s *GoSpell) Spell(word string) bool {
 	// e.g. "london" even when "London" is in the dictionary.
 	switch caseStyle(word) {
 	case titleCase:
-		_, ok := s.dict[strings.ToLower(word)]
-		return ok
+		return s.spellExact(strings.ToLower(word))
 	case allUpper:
 		lower := strings.ToLower(word)
-		if _, ok := s.dict[lower]; ok {
+		if s.spellExact(lower) {
 			return true
 		}
 		// title form: uppercase the first byte, lowercase the rest
 		if len(lower) > 0 {
-			if _, ok := s.dict[strings.ToUpper(lower[:1])+lower[1:]]; ok {
-				return true
-			}
+			return s.spellExact(strings.ToUpper(lower[:1]) + lower[1:])
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) spellExact(word string) bool {
+	if _, ok := s.dict[word]; ok {
+		return true
+	}
+	if s.compoundOnly != nil {
+		if _, ok := s.compoundOnly[word]; ok {
+			return false
+		}
+	}
+	if numericTokenRegexp.MatchString(word) {
+		return true
+	}
+	for _, pat := range s.compounds {
+		if pat.MatchString(word) {
+			return true
 		}
 	}
 	return false
@@ -196,28 +198,63 @@ func insertWord(dict map[string]struct{}, word string) {
 
 // NewGoSpellReader creates a GoSpell from io.Readers for Hunspell AFF and DIC data.
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
-	affix, err := newDictConfig(aff)
+	affBytes, err := io.ReadAll(aff)
+	if err != nil {
+		return nil, fmt.Errorf("read aff: %w", err)
+	}
+	dicBytes, err := io.ReadAll(dic)
+	if err != nil {
+		return nil, fmt.Errorf("read dic: %w", err)
+	}
+
+	set, err := detectSET(affBytes)
+	if err != nil {
+		return nil, err
+	}
+	if set == "" {
+		set = "UTF-8"
+	}
+	enc, ok := encodingForSET(set)
+	if !ok {
+		return nil, fmt.Errorf("SET had non-UTF-8 character encoding of %q -- not supported", set)
+	}
+	affBytes, err = decodeWithEncoding(enc, affBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode aff: %w", err)
+	}
+	dicBytes, err = decodeWithEncoding(enc, dicBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode dic: %w", err)
+	}
+	affBytes = bytes.TrimPrefix(affBytes, []byte("\uFEFF"))
+
+	affix, err := newDictConfig(bytes.NewReader(affBytes))
 	if err != nil {
 		return nil, err
 	}
 
-	scanner := bufio.NewScanner(dic)
+	scanner := bufio.NewScanner(bytes.NewReader(dicBytes))
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("dic file is empty")
 	}
-	line := scanner.Text()
-	i, err := strconv.ParseInt(line, 10, 64)
+	line := strings.TrimSpace(scanner.Text())
+	line = strings.TrimPrefix(line, "\uFEFF")
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("dic file header is empty")
+	}
+	_, err = strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
 	gs := GoSpell{
-		dict:      make(map[string]struct{}, i*5),
-		compounds: make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
-		splitter:  newSplitter(affix.WordChars),
+		dict:         make(map[string]struct{}),
+		compoundOnly: affix.compoundOnlyWords,
+		compounds:    make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
 	words := []string{}

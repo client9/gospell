@@ -2,6 +2,7 @@ package gospell
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
@@ -54,11 +55,12 @@ type dictConfig struct {
 	Replacements      [][2]string
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
-	AffixMap     map[rune]*affix
-	CompoundMin  int
-	CompoundOnly string
-	CompoundRule []string
-	compoundMap  map[rune][]string
+	AffixMap          map[rune]*affix
+	CompoundMin       int
+	CompoundOnly      string
+	CompoundRule      []string
+	compoundMap       map[rune][]string
+	compoundOnlyWords map[string]struct{}
 	// Scratch slices reused across expand calls to avoid per-entry allocations.
 	prefixScratch  []*affix
 	suffixScratch  []*affix
@@ -95,6 +97,10 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	}
 
 	if compoundOnly {
+		if a.compoundOnlyWords == nil {
+			a.compoundOnlyWords = make(map[string]struct{})
+		}
+		a.compoundOnlyWords[word] = struct{}{}
 		return out, nil
 	}
 
@@ -163,10 +169,11 @@ type matcherCacheKey struct {
 
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
-		Flag:        "ASCII",
-		AffixMap:    make(map[rune]*affix),
-		compoundMap: make(map[rune][]string),
-		CompoundMin: 3,
+		Flag:              "ASCII",
+		AffixMap:          make(map[rune]*affix),
+		compoundMap:       make(map[rune][]string),
+		compoundOnlyWords: make(map[string]struct{}),
+		CompoundMin:       3,
 	}
 	// Many affix rules share the same condition pattern (e.g. ".", "e",
 	// "[^aeiou]y"). Cache parsed matchers so each unique (pattern, type) pair
@@ -191,10 +198,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("SET stanza had %d fields, expected 2", len(parts))
 			}
-			if parts[1] != "UTF-8" {
-				return nil, fmt.Errorf("SET had non-UTF-8 character encoding of %q -- not supported", parts[1])
-			}
-			// UTF-8 - nothing to do
+			// Encoding is handled before parsing in NewGoSpellReader.
 		case "ICONV":
 			if len(parts) == 2 {
 				continue
@@ -308,6 +312,8 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			default:
 				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
 			}
+		case "MAXNGRAMSUGS":
+			// not supported
 		default:
 			return nil, fmt.Errorf("unknown command %v", parts)
 		}
@@ -318,4 +324,35 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 	}
 
 	return &aff, nil
+}
+
+func detectSET(raw []byte) (string, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	firstLine := true
+	for scanner.Scan() {
+		line := scanner.Text()
+		if firstLine {
+			line = strings.TrimPrefix(line, "\uFEFF")
+			firstLine = false
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] != "SET" {
+			continue
+		}
+		if len(fields) != 2 {
+			return "", fmt.Errorf("SET stanza had %d fields, expected 2", len(fields))
+		}
+		return fields[1], nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", nil
 }

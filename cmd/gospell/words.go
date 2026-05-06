@@ -1,4 +1,4 @@
-package gospell
+package main
 
 import (
 	"regexp"
@@ -20,20 +20,10 @@ var numberBinaryRegexp = regexp.MustCompile("^0[b][01]+$")
 // SHA-1 / SHA-256 style hex hash (40 or 64 hex chars)
 var shaHashRegexp = regexp.MustCompile("^[0-9a-fA-F]{40}$")
 
-type splitter struct {
-	fn func(c rune) bool
-}
-
-func (s *splitter) split(in string) []string {
-	return strings.FieldsFunc(in, s.fn)
-}
-
-func newSplitter(chars string) *splitter {
-	s := splitter{}
-	s.fn = func(c rune) bool {
-		return !unicode.IsLetter(c) && !strings.ContainsRune(chars, c)
-	}
-	return &s
+func splitWords(in string) []string {
+	return strings.FieldsFunc(in, func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '\''
+	})
 }
 
 func isNumber(s string) bool {

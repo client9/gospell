@@ -22,7 +22,7 @@ func caseStyle(word string) wordCase {
 
 	for _, r := range word {
 		// ASCII apostrophe doesn't count — want "don't" to have upper forms
-		if r == 0x0027 {
+		if r == 0x0027 || unicode.IsDigit(r) {
 			continue
 		}
 		runeCount++

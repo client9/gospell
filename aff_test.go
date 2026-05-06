@@ -197,6 +197,10 @@ WORDCHARS 0123456789
 		{"7", true},
 		{"8", true},
 		{"9", true},
+		{"1st", true},
+		{"21st", true},
+		{"11th", true},
+		{"1th", false},
 		{"10", true},
 		{"21", true},
 		{"32", true},
@@ -207,10 +211,6 @@ WORDCHARS 0123456789
 		{"87", true},
 		{"98", true},
 		{"99", true},
-		{"1st", true},
-		{"21st", true},
-		{"11th", true},
-		{"1th", false},
 		{"12th", true},
 		{"2th", false},
 		{"13th", true},
@@ -236,6 +236,101 @@ WORDCHARS 0123456789
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {
 			t.Errorf("%d %q was not %v", pos, tt.word, tt.spell)
+		}
+	}
+}
+
+func TestCompoundCaseFallback(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDMIN 1
+ONLYINCOMPOUND c
+COMPOUNDRULE 2
+COMPOUNDRULE n*1t
+COMPOUNDRULE n*mp
+WORDCHARS 0123456789
+`
+	sampleDic := `23
+0/nm
+0th/pt
+1/n1
+1st/p
+1th/tc
+2/nm
+2nd/p
+2th/tc
+3/nm
+3rd/p
+3th/tc
+4/nm
+4th/pt
+5/nm
+5th/pt
+6/nm
+6th/pt
+7/nm
+7th/pt
+8/nm
+8th/pt
+9/nm
+9th/pt
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"42nd", true},
+		{"42ND", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestDigitsInWordsCompoundRule(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDMIN 1
+COMPOUNDRULE 1
+COMPOUNDRULE a*b
+ONLYINCOMPOUND c
+WORDCHARS 0123456789-
+`
+	sampleDic := `11
+0/a
+1/a
+2/a
+3/a
+4/a
+5/a
+6/a
+7/a
+8/a
+9/a
+-jährig/bc
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %s", err)
+	}
+
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"1-jährig", true},
+		{"-jährig", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
 		}
 	}
 }
@@ -280,10 +375,13 @@ GB
 		{"junk", false},
 		{"100", true},
 		{"1", true},
-		{"100GB", true},
+		{"1.1", true},
+		{"4,2", true},
+		{"42-42", true},
+		{"100GB", false},
 		{"100mi", false},
-		{"0xFF", true},
-		{"0x12ff", true},
+		{"0xFF", false},
+		{"0x12ff", false},
 	}
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {

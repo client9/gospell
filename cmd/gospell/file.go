@@ -23,7 +23,7 @@ func SpellFile(gs *gospell.GoSpell, raw []byte) []Diff {
 	s = removePath(s)
 
 	for linenum, line := range strings.Split(s, "\n") {
-		words := gs.Split(line)
+		words := splitWords(line)
 		for _, word := range words {
 			word = strings.Trim(word, "'")
 			if known := gs.Spell(word); !known {

@@ -12,6 +12,8 @@ func TestCaseStyle(t *testing.T) {
 	}{
 		{"lower", allLower},
 		{"what's", allLower},
+		{"42nd", allLower},
+		{"42ND", allUpper},
 		{"UPPER", allUpper},
 		{"Title", titleCase},
 		{"CamelCase", mixedCase},
