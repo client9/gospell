@@ -251,7 +251,7 @@ func (s *GoSpell) surfaceAllowsStandalone(word string) (bool, bool) {
 		return false, false
 	}
 	for _, entry := range entries {
-		if entry.StandaloneAllowed && !entry.CompoundForbidden {
+		if entry.allowsStandalone() {
 			return true, true
 		}
 	}
@@ -366,6 +366,9 @@ func (s *GoSpell) compoundStartPart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
+	if ok, found := s.surfaceAllowsCompound(word, compoundPositionStart); found {
+		return ok
+	}
 	return s.compoundSetContains(s.compoundBegin, word) ||
 		s.compoundSetContains(s.compoundOnly, word) ||
 		s.wordHasFlag(word, s.compoundBeginFlag)
@@ -375,6 +378,9 @@ func (s *GoSpell) compoundMiddlePart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
+	if ok, found := s.surfaceAllowsCompound(word, compoundPositionMiddle); found {
+		return ok
+	}
 	return s.compoundSetContains(s.compoundMiddle, word) ||
 		s.compoundSetContains(s.compoundOnly, word) ||
 		s.wordHasFlag(word, s.compoundMiddleFlag)
@@ -383,6 +389,17 @@ func (s *GoSpell) compoundMiddlePart(word string) bool {
 func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
+	}
+	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
+		if !ok {
+			return false
+		}
+		if s.forceUcaseWords != nil {
+			if _, ok := s.forceUcaseWords[word]; ok && wholeStyle == allLower {
+				return false
+			}
+		}
+		return true
 	}
 	if s.forceUcaseWords != nil {
 		if _, ok := s.forceUcaseWords[word]; ok && wholeStyle == allLower {
@@ -525,6 +542,29 @@ func insertWord(dict map[string]struct{}, word string) {
 	}
 }
 
+func (s *GoSpell) surfaceAllowsCompound(word string, pos compoundPosition) (bool, bool) {
+	if len(s.surfaces) == 0 {
+		return false, false
+	}
+	entries, ok := s.surfaces[word]
+	if !ok {
+		return false, false
+	}
+	// An explicit CompoundForbidden entry blocks compound use regardless of
+	// other surface forms for the same spelling.
+	for _, entry := range entries {
+		if entry.CompoundForbidden {
+			return false, true
+		}
+	}
+	for _, entry := range entries {
+		if entry.allowsCompound(pos) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
 func compoundEntryFlags(line string, affix *dictConfig) []string {
 	idx := strings.Index(line, "/")
 	if idx == -1 {
@@ -540,6 +580,53 @@ func compoundEntryFlags(line string, affix *dictConfig) []string {
 		return nil
 	}
 	return tokens
+}
+
+func hasFlagToken(flags []string, want string) bool {
+	if want == "" {
+		return false
+	}
+	for _, flag := range flags {
+		if flag == want {
+			return true
+		}
+	}
+	return false
+}
+
+func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec expandedWord) surfaceEntry {
+	entry := surfaceEntry{
+		Word:              word,
+		StandaloneAllowed: true,
+		RawFlags:          append([]string(nil), rawFlags...),
+	}
+	if affix == nil {
+		return entry
+	}
+	if (rec.forbid && rec.state == 0) || hasFlagToken(rawFlags, affix.CompoundForbidFlag) {
+		entry.CompoundForbidden = true
+	}
+	if rec.compoundOnly || hasFlagToken(rawFlags, affix.CompoundOnly) {
+		entry.OnlyInCompound = true
+		entry.StandaloneAllowed = false
+		entry.CompoundStartAllowed = true
+		entry.CompoundMiddleAllowed = true
+		entry.CompoundEndAllowed = false
+	}
+	if rec.mask&compoundBegin != 0 || hasFlagToken(rawFlags, affix.CompoundBeginFlag) {
+		entry.CompoundStartAllowed = true
+	}
+	if rec.mask&compoundMiddle != 0 || hasFlagToken(rawFlags, affix.CompoundMiddleFlag) {
+		entry.CompoundMiddleAllowed = true
+	}
+	if rec.mask&compoundEnd != 0 || hasFlagToken(rawFlags, affix.CompoundEndFlag) {
+		entry.CompoundEndAllowed = true
+	}
+	if entry.CompoundForbidden {
+		// Keep the surface record for diagnostics, but let compound position
+		// checks decide using the positional metadata.
+	}
+	return entry
 }
 
 // NewGoSpellReader creates a GoSpell from io.Readers for Hunspell AFF and DIC data.
@@ -619,7 +706,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		compounds:          make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
-	words := []string{}
+	words := []expandedWord{}
 	for scanner.Scan() {
 		line := scanner.Text()
 		rawFlags := compoundEntryFlags(line, affix)
@@ -630,29 +717,31 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 				break
 			}
 		}
-		words, err = affix.expand(line, words)
+		expanded, err := affix.expandRecords(line)
 		if err != nil {
 			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
+		words = expanded
 		base := line
 		if idx := strings.Index(base, "/"); idx >= 0 {
 			base = base[:idx]
 		}
 		base = strings.TrimSpace(base)
 		seen := make(map[string]struct{}, len(words))
-		for _, word := range words {
+		for _, rec := range words {
+			word := rec.word
 			if _, ok := seen[word]; ok {
 				continue
 			}
 			seen[word] = struct{}{}
 			insertWord(gs.dict, word)
-			gs.surfaces[word] = append(gs.surfaces[word], surfaceEntry{
-				Word:              word,
-				StandaloneAllowed: true,
-				RawFlags:          append([]string(nil), rawFlags...),
-			})
+			gs.surfaces[word] = append(gs.surfaces[word], buildSurfaceEntry(word, rawFlags, affix, rec))
 			gs.wordEntryCount[word]++
-			if len(rawFlags) > 0 {
+			// wordFlags tracks only root dic-entry flags (state==0). Derived
+			// forms (SFX/PFX generated) carry their own affix output flags and
+			// must not inherit the parent's flags — that would cause
+			// CHECKCOMPOUNDPATTERN flag checks to fire on the wrong forms.
+			if rec.state == 0 && len(rawFlags) > 0 {
 				if gs.wordFlags[word] == nil {
 					gs.wordFlags[word] = make(map[string]struct{}, len(rawFlags))
 				}
@@ -675,15 +764,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 				gs.onlyCompoundCount[base]++
 				gs.compoundOnlyRoot[base] = struct{}{}
 			}
-			for _, word := range words {
-				gs.compoundOnlyRoot[word] = struct{}{}
+			for _, rec := range words {
+				gs.compoundOnlyRoot[rec.word] = struct{}{}
 			}
 			continue
-		}
-		for _, word := range words {
-			if _, ok := affix.compoundOnlyWords[word]; ok {
-				gs.onlyCompoundCount[word]++
-			}
 		}
 	}
 	if err := scanner.Err(); err != nil {

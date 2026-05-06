@@ -40,11 +40,12 @@ type compoundRules struct {
 }
 
 type expandedWord struct {
-	word   string
-	flags  string
-	mask   compoundMask
-	state  affixState
-	forbid bool
+	word         string
+	flags        string
+	mask         compoundMask
+	state        affixState
+	forbid       bool
+	compoundOnly bool
 }
 
 type compoundMask uint8
@@ -171,12 +172,22 @@ type dictConfig struct {
 // The pointer receiver lets us reuse prefixScratch/suffixScratch/prewordScratch
 // across calls without allocating on every .dic entry.
 func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
+	records, err := a.expandRecords(wordAffix)
+	if err != nil {
+		return nil, err
+	}
 	out = out[:0]
+	for _, rec := range records {
+		out = append(out, rec.word)
+	}
+	return out, nil
+}
+
+func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 	idx := strings.Index(wordAffix, "/")
 
 	if idx == -1 {
-		out = append(out, wordAffix)
-		return out, nil
+		return []expandedWord{{word: wordAffix}}, nil
 	}
 	if idx == 0 || idx+1 == len(wordAffix) {
 		return nil, fmt.Errorf("slash char found in first or last position")
@@ -197,15 +208,16 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 			rootForbid = true
 		}
 	}
-	added := make(map[string]struct{})
+	added := make(map[string]int)
 	seen := make(map[string]struct{})
-	if err := a.expandState(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
+	var out []expandedWord
+	if err := a.expandStateRecords(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]struct{}, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]string) error {
+func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
 	flags = a.normalizeFlags(flags)
 	keys, err := a.splitFlags(flags)
 	if err != nil {
@@ -232,9 +244,22 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 		}
 	}
 	a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
-	if _, ok := added[word]; !ok {
-		*out = append(*out, word)
-		added[word] = struct{}{}
+	if idx, ok := added[word]; !ok {
+		added[word] = len(*out)
+		*out = append(*out, expandedWord{
+			word:         word,
+			flags:        flags,
+			mask:         currentMask,
+			state:        currentState,
+			forbid:       explicitForbid,
+			compoundOnly: compoundOnly,
+		})
+	} else {
+		rec := &(*out)[idx]
+		rec.mask |= currentMask
+		rec.state |= currentState
+		rec.forbid = rec.forbid || explicitForbid
+		rec.compoundOnly = rec.compoundOnly || compoundOnly
 	}
 	applyKeys := func(keys []string, wantType affixType) error {
 		for _, key := range keys {
@@ -271,7 +296,7 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 			for _, ew := range expanded {
 				nextOnly := compoundOnly
 				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
-				if err := a.expandState(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
+				if err := a.expandStateRecords(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
 					return err
 				}
 			}

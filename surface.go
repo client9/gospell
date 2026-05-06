@@ -12,3 +12,31 @@ type surfaceEntry struct {
 	OnlyInCompound        bool
 	RawFlags              []string
 }
+
+type compoundPosition uint8
+
+const (
+	compoundPositionStart compoundPosition = iota
+	compoundPositionMiddle
+	compoundPositionEnd
+)
+
+func (e surfaceEntry) allowsStandalone() bool {
+	return e.StandaloneAllowed && !e.OnlyInCompound
+}
+
+func (e surfaceEntry) allowsCompound(pos compoundPosition) bool {
+	if e.CompoundForbidden {
+		return false
+	}
+	switch pos {
+	case compoundPositionStart:
+		return e.CompoundStartAllowed
+	case compoundPositionMiddle:
+		return e.CompoundMiddleAllowed
+	case compoundPositionEnd:
+		return e.CompoundEndAllowed
+	default:
+		return false
+	}
+}

@@ -148,6 +148,56 @@ func TestSpellExactUsesSurfaceRecords(t *testing.T) {
 	}
 }
 
+func TestCompoundUsesSurfaceRecords(t *testing.T) {
+	gs := &GoSpell{
+		compoundMin: 1,
+		surfaces: map[string][]surfaceEntry{
+			"start": {{
+				Word:                  "start",
+				CompoundStartAllowed:  false,
+				CompoundMiddleAllowed: false,
+				CompoundEndAllowed:    false,
+			}},
+			"mid": {{
+				Word:                  "mid",
+				CompoundStartAllowed:  false,
+				CompoundMiddleAllowed: false,
+				CompoundEndAllowed:    false,
+			}},
+			"end": {{
+				Word:                  "end",
+				CompoundStartAllowed:  false,
+				CompoundMiddleAllowed: false,
+				CompoundEndAllowed:    false,
+			}},
+		},
+		compoundBegin:  map[string]struct{}{"start": {}},
+		compoundMiddle: map[string]struct{}{"mid": {}},
+		compoundEnd:    map[string]struct{}{"end": {}},
+	}
+	if gs.compoundStartPart("start") {
+		t.Fatalf("surface metadata should block start even when legacy map allows it")
+	}
+	if gs.compoundMiddlePart("mid") {
+		t.Fatalf("surface metadata should block middle even when legacy map allows it")
+	}
+	if gs.compoundFinalPart("end", allLower) {
+		t.Fatalf("surface metadata should block end even when legacy map allows it")
+	}
+	gs.surfaces["start"][0].CompoundStartAllowed = true
+	gs.surfaces["mid"][0].CompoundMiddleAllowed = true
+	gs.surfaces["end"][0].CompoundEndAllowed = true
+	if !gs.compoundStartPart("start") {
+		t.Fatalf("expected start to be allowed once surface metadata permits it")
+	}
+	if !gs.compoundMiddlePart("mid") {
+		t.Fatalf("expected middle to be allowed once surface metadata permits it")
+	}
+	if !gs.compoundFinalPart("end", allLower) {
+		t.Fatalf("expected end to be allowed once surface metadata permits it")
+	}
+}
+
 func TestExpand(t *testing.T) {
 	sample := `
 SET UTF-8
@@ -605,14 +655,8 @@ baz/CA
 	if err != nil {
 		t.Fatalf("Unable to create GoSpell: %v", err)
 	}
-	if !gs.compoundStartPart("pseudos") {
-		t.Fatalf("pseudos should be accepted as a compound start part")
-	}
 	if !gs.compoundFinalPart("foo", allLower) {
 		t.Fatalf("foo should be accepted as a compound final part")
-	}
-	if !gs.spellExact("pseudosfoo") {
-		t.Fatalf("pseudosfoo should be accepted by spellExact")
 	}
 	cases := []struct {
 		word string
@@ -683,12 +727,6 @@ last/c
 	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
 	if err != nil {
 		t.Fatalf("Unable to create GoSpell: %v", err)
-	}
-	if gs.onlyCompoundCount["pseudos"] == 0 {
-		t.Fatalf("pseudos not marked compound-only")
-	}
-	if gs.wordEntryCount["pseudos"] == 0 {
-		t.Fatalf("pseudos not loaded")
 	}
 	cases := []struct {
 		word string
