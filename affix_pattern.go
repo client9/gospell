@@ -2,6 +2,7 @@ package gospell
 
 import (
 	"fmt"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -115,7 +116,7 @@ func (m *affixMatcher) MatchString(word string) bool {
 	// Suffix: walk backward from the end to find where the last n runes begin,
 	// then walk forward matching each element.
 	pos := len(word)
-	for i := 0; i < n; i++ {
+	for range n {
 		if pos == 0 {
 			return false // word has fewer runes than pattern needs
 		}
@@ -138,19 +139,9 @@ func matchRune(elem matchElem, c rune) bool {
 	case matchLiteral:
 		return c == elem.literal
 	case matchClass:
-		for _, r := range elem.class {
-			if r == c {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(elem.class, c)
 	case matchNegClass:
-		for _, r := range elem.class {
-			if r == c {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(elem.class, c)
 	default: // matchAny
 		return true
 	}
