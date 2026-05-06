@@ -8,6 +8,9 @@ help:
 build: ## build module
 	go build ./cmd/gospell
 
+bench: ## run benchmarks
+	go test -bench -benchmem ./...
+
 test: ## run all unit tests
 	go test ./...
 
