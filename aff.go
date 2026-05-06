@@ -33,9 +33,10 @@ type affix struct {
 }
 
 type compoundRules struct {
-	Flag   rune
-	Permit rune
-	Forbid rune
+	Flag   string
+	Permit string
+	Forbid string
+	Only   string
 }
 
 type expandedWord struct {
@@ -49,6 +50,14 @@ type expandedWord struct {
 type compoundMask uint8
 
 type affixState uint8
+
+type compoundPatternRule struct {
+	left      string
+	right     string
+	leftFlag  string
+	rightFlag string
+	mod       string
+}
 
 const (
 	compoundBegin compoundMask = 1 << iota
@@ -68,11 +77,14 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		}
 		mask := compoundMask(0)
 		forbid := false
-		if strings.ContainsRune(r.OutFlags, c.Forbid) {
+		if flagContains(r.OutFlags, c.Forbid, mode) {
 			mask = 0
 			forbid = true
-		} else if strings.ContainsRune(r.OutFlags, c.Flag) || strings.ContainsRune(r.OutFlags, c.Permit) {
+		} else if flagContains(r.OutFlags, c.Flag, mode) || flagContains(r.OutFlags, c.Permit, mode) {
 			mask = compoundBegin | compoundMiddle | compoundEnd
+			if flagContains(r.OutFlags, c.Only, mode) {
+				mask &^= compoundEnd
+			}
 		} else if a.Type == prefix {
 			mask = compoundBegin
 		} else {
@@ -84,7 +96,7 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		} else {
 			outState = state | stateSuffix
 		}
-		if outState == statePrefix|stateSuffix && !strings.ContainsRune(r.OutFlags, c.Flag) && !strings.ContainsRune(r.OutFlags, c.Permit) {
+		if outState == statePrefix|stateSuffix && !flagContains(r.OutFlags, c.Flag, mode) && !flagContains(r.OutFlags, c.Permit, mode) {
 			mask = 0
 		}
 		if a.Type == prefix {
@@ -126,9 +138,12 @@ type dictConfig struct {
 	WordChars          string
 	NoSuggestFlag      string
 	ForceUcaseFlag     string
-	CompoundFlag       rune
-	CompoundPermitFlag rune
-	CompoundForbidFlag rune
+	CompoundBeginFlag  string
+	CompoundMiddleFlag string
+	CompoundEndFlag    string
+	CompoundFlag       string
+	CompoundPermitFlag string
+	CompoundForbidFlag string
 	IconvReplacements  []string
 	Replacements       [][2]string
 	// AffixMap stores pointers so appending rules in newDictConfig never
@@ -137,6 +152,7 @@ type dictConfig struct {
 	CompoundMin            int
 	CompoundOnly           string
 	CompoundRule           []string
+	checkCompoundPatterns  []compoundPatternRule
 	compoundMap            map[string][]string
 	compoundBeginWords     map[string]struct{}
 	compoundMiddleWords    map[string]struct{}
@@ -248,7 +264,7 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 				continue
 			}
 			var expanded []expandedWord
-			expanded = af.expand(word, flags, currentState, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag}, a.flagMode, expanded[:0])
+			expanded = af.expand(word, flags, currentState, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag, a.CompoundOnly}, a.flagMode, expanded[:0])
 			nextUsed := make(map[string]struct{}, len(used)+1)
 			for k := range used {
 				nextUsed[k] = struct{}{}
@@ -404,6 +420,44 @@ func (a *dictConfig) splitFlags(flags string) ([]string, error) {
 	}
 }
 
+func splitPatternFlag(token string) (string, string) {
+	pattern, flag, found := strings.Cut(token, "/")
+	if !found {
+		return token, ""
+	}
+	if pattern == "0" {
+		pattern = ""
+	}
+	return pattern, flag
+}
+
+func flagContains(flags, want string, mode flagMode) bool {
+	if want == "" || flags == "" {
+		return false
+	}
+	switch mode {
+	case flagNum:
+		for _, part := range strings.Split(flags, ",") {
+			if part == want {
+				return true
+			}
+		}
+		return false
+	case flagLong:
+		if len(want) == 1 {
+			return strings.ContainsRune(flags, []rune(want)[0])
+		}
+		for i := 0; i+1 <= len(flags); i += 2 {
+			if flags[i:i+2] == want {
+				return true
+			}
+		}
+		return false
+	default:
+		return strings.Contains(flags, want)
+	}
+}
+
 func singleRune(s string) (rune, bool) {
 	r := []rune(s)
 	if len(r) != 1 {
@@ -420,22 +474,17 @@ func (a *dictConfig) isCompoundOnlyFlag(flag string) bool {
 }
 
 func (a *dictConfig) isCompoundRuleFlag(flag string) bool {
-	if r, ok := singleRune(flag); ok {
-		return r == a.CompoundFlag || r == a.CompoundPermitFlag || r == a.CompoundForbidFlag
-	}
-	return false
+	return flag == a.CompoundFlag || flag == a.CompoundPermitFlag || flag == a.CompoundForbidFlag
 }
 
 func (a *dictConfig) maskForFlags(flags []string) (compoundMask, bool) {
 	var mask compoundMask
 	for _, key := range flags {
-		if r, ok := singleRune(key); ok {
-			switch r {
-			case a.CompoundFlag, a.CompoundPermitFlag:
-				mask |= compoundBegin | compoundMiddle | compoundEnd
-			case a.CompoundForbidFlag:
-				return 0, true
-			}
+		switch key {
+		case a.CompoundFlag, a.CompoundPermitFlag:
+			mask |= compoundBegin | compoundMiddle | compoundEnd
+		case a.CompoundForbidFlag:
+			return 0, true
 		}
 	}
 	return mask, false
@@ -568,29 +617,17 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDFLAG stanza had %d fields, expected 2", len(parts))
 			}
-			r := []rune(parts[1])
-			if len(r) != 1 {
-				return nil, fmt.Errorf("COMPOUNDFLAG stanza had more than one flag: %q", parts[1])
-			}
-			aff.CompoundFlag = r[0]
+			aff.CompoundFlag = parts[1]
 		case "COMPOUNDPERMITFLAG":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDPERMITFLAG stanza had %d fields, expected 2", len(parts))
 			}
-			r := []rune(parts[1])
-			if len(r) != 1 {
-				return nil, fmt.Errorf("COMPOUNDPERMITFLAG stanza had more than one flag: %q", parts[1])
-			}
-			aff.CompoundPermitFlag = r[0]
+			aff.CompoundPermitFlag = parts[1]
 		case "COMPOUNDFORBIDFLAG":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDFORBIDFLAG stanza had %d fields, expected 2", len(parts))
 			}
-			r := []rune(parts[1])
-			if len(r) != 1 {
-				return nil, fmt.Errorf("COMPOUNDFORBIDFLAG stanza had more than one flag: %q", parts[1])
-			}
-			aff.CompoundForbidFlag = r[0]
+			aff.CompoundForbidFlag = parts[1]
 		case "COMPOUNDRULE":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDRULE stanza had %d fields, expected 2", len(parts))
@@ -616,6 +653,35 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("FORCEUCASE stanza had %d fields, expected 2", len(parts))
 			}
 			aff.ForceUcaseFlag = parts[1]
+		case "COMPOUNDBEGIN":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDBEGIN stanza had %d fields, expected 2", len(parts))
+			}
+			aff.CompoundBeginFlag = parts[1]
+		case "COMPOUNDMIDDLE":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDMIDDLE stanza had %d fields, expected 2", len(parts))
+			}
+			aff.CompoundMiddleFlag = parts[1]
+		case "COMPOUNDEND":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("COMPOUNDEND stanza had %d fields, expected 2", len(parts))
+			}
+			aff.CompoundEndFlag = parts[1]
+		case "CHECKCOMPOUNDPATTERN":
+			if len(parts) == 2 {
+				continue
+			}
+			if len(parts) < 3 {
+				return nil, fmt.Errorf("CHECKCOMPOUNDPATTERN stanza had %d fields, expected at least 2", len(parts))
+			}
+			rule := compoundPatternRule{}
+			rule.left, rule.leftFlag = splitPatternFlag(parts[1])
+			rule.right, rule.rightFlag = splitPatternFlag(parts[2])
+			if len(parts) > 3 {
+				rule.mod = parts[3]
+			}
+			aff.checkCompoundPatterns = append(aff.checkCompoundPatterns, rule)
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))

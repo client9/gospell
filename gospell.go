@@ -22,20 +22,29 @@ type iconvRule struct {
 
 // GoSpell is main struct
 type GoSpell struct {
-	dict              map[string]struct{}
-	compoundOnly      map[string]struct{}
-	compoundBegin     map[string]struct{}
-	compoundMiddle    map[string]struct{}
-	compoundEnd       map[string]struct{}
-	compoundForbidden map[string]struct{}
-	forceUcaseWords   map[string]struct{}
-	blockedCompound   map[string]struct{}
-	compoundMin       int
-	maxWordLen        int
-	flagMode          flagMode
-	iconvRules        []iconvRule
-	compounds         []*regexp.Regexp
-	suggester         Suggestions
+	dict                map[string]struct{}
+	wordFlags           map[string]map[string]struct{}
+	wordEntryCount      map[string]int
+	onlyCompoundCount   map[string]int
+	onlyCompoundSurface map[string]struct{}
+	compoundOnly        map[string]struct{}
+	compoundBegin       map[string]struct{}
+	compoundMiddle      map[string]struct{}
+	compoundEnd         map[string]struct{}
+	compoundForbidden   map[string]struct{}
+	forceUcaseWords     map[string]struct{}
+	compoundBeginFlag   string
+	compoundMiddleFlag  string
+	compoundEndFlag     string
+	compoundOnlyFlag    string
+	compoundPatterns    []compoundPatternRule
+	blockedCompound     map[string]struct{}
+	compoundMin         int
+	maxWordLen          int
+	flagMode            flagMode
+	iconvRules          []iconvRule
+	compounds           []*regexp.Regexp
+	suggester           Suggestions
 }
 
 // InputConversion does any character substitution before checking
@@ -200,13 +209,13 @@ func (s *GoSpell) Spell(word string) bool {
 }
 
 func (s *GoSpell) spellExact(word string) bool {
-	if s.compoundOnly != nil {
-		if _, ok := s.compoundOnly[word]; ok {
-			return false
-		}
-	}
 	if _, ok := s.dict[word]; ok {
 		return true
+	}
+	if s.onlyCompoundSurface != nil {
+		if _, ok := s.onlyCompoundSurface[word]; ok {
+			return false
+		}
 	}
 	if numericTokenRegexp.MatchString(word) {
 		return true
@@ -294,68 +303,59 @@ func (s *GoSpell) spellCompound(word string) bool {
 	if len(runes) < 2*s.compoundMin {
 		return false
 	}
-	ok, parts := s.spellCompoundFromRunes(runes, caseStyle(word))
+	parts, ok := s.spellCompoundParts(runes, caseStyle(word), true)
 	if !ok {
 		return false
 	}
-	if parts >= 3 && caseStyle(word) == allLower && s.compoundTypoMatchesDict(word) {
+	if len(parts) >= 3 && caseStyle(word) == allLower && s.compoundTypoMatchesDict(word) {
+		return false
+	}
+	if s.compoundPatternBlocks(parts) {
 		return false
 	}
 	return true
 }
 
-func (s *GoSpell) spellCompoundFromRunes(runes []rune, wholeStyle wordCase) (bool, int) {
+func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bool) ([]string, bool) {
 	if len(runes) < s.compoundMin {
-		return false, 0
+		return nil, false
 	}
 	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
 		prefix := string(runes[:i])
-		if !s.compoundStartPart(prefix) {
+		if first {
+			if !s.compoundStartPart(prefix) {
+				continue
+			}
+		} else if !s.compoundMiddlePart(prefix) {
 			continue
 		}
 		suffix := string(runes[i:])
 		if s.compoundFinalPart(suffix, wholeStyle) {
-			return true, 2
+			return []string{prefix, suffix}, true
 		}
-		if ok, parts := s.spellCompoundFromMiddleRunes([]rune(suffix), wholeStyle); ok {
-			return true, 1 + parts
-		}
-	}
-	return false, 0
-}
-
-func (s *GoSpell) spellCompoundFromMiddleRunes(runes []rune, wholeStyle wordCase) (bool, int) {
-	if len(runes) < s.compoundMin {
-		return false, 0
-	}
-	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
-		prefix := string(runes[:i])
-		if !s.compoundMiddlePart(prefix) {
-			continue
-		}
-		suffix := string(runes[i:])
-		if s.compoundFinalPart(suffix, wholeStyle) {
-			return true, 2
-		}
-		if ok, parts := s.spellCompoundFromMiddleRunes([]rune(suffix), wholeStyle); ok {
-			return true, 1 + parts
+		if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false); ok {
+			return append([]string{prefix}, rest...), true
 		}
 	}
-	return false, 0
+	return nil, false
 }
 
 func (s *GoSpell) compoundStartPart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
-	return s.compoundSetContains(s.compoundBegin, word) || s.compoundSetContains(s.compoundOnly, word)
+	return s.compoundSetContains(s.compoundBegin, word) ||
+		s.compoundSetContains(s.compoundOnly, word) ||
+		s.wordHasFlag(word, s.compoundBeginFlag)
 }
 
 func (s *GoSpell) compoundMiddlePart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
-	return s.compoundSetContains(s.compoundMiddle, word) || s.compoundSetContains(s.compoundOnly, word)
+	return s.compoundSetContains(s.compoundMiddle, word) ||
+		s.compoundSetContains(s.compoundOnly, word) ||
+		s.wordHasFlag(word, s.compoundMiddleFlag)
 }
 
 func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
@@ -367,7 +367,49 @@ func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 			return false
 		}
 	}
-	return s.compoundSetContains(s.compoundOnly, word) || s.compoundSetContains(s.compoundEnd, word)
+	return s.compoundSetContains(s.compoundEnd, word) ||
+		s.wordHasFlag(word, s.compoundEndFlag)
+}
+
+func (s *GoSpell) wordHasFlag(word, flag string) bool {
+	if flag == "" {
+		return false
+	}
+	flags := s.wordFlags[word]
+	if len(flags) == 0 {
+		return false
+	}
+	_, ok := flags[flag]
+	return ok
+}
+
+func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
+	if len(parts) < 2 || len(s.compoundPatterns) == 0 {
+		return false
+	}
+	for i := 0; i+1 < len(parts); i++ {
+		left := parts[i]
+		right := parts[i+1]
+		for _, rule := range s.compoundPatterns {
+			if rule.leftFlag != "" && !s.wordHasFlag(left, rule.leftFlag) {
+				continue
+			}
+			if rule.rightFlag != "" && !s.wordHasFlag(right, rule.rightFlag) {
+				continue
+			}
+			if rule.left != "" && !strings.HasSuffix(left, rule.left) {
+				continue
+			}
+			if rule.right != "" && !strings.HasPrefix(right, rule.right) {
+				continue
+			}
+			if rule.mod != "" && (strings.HasSuffix(left, rule.mod) || strings.HasPrefix(right, rule.mod)) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (s *GoSpell) compoundSetContains(set map[string]struct{}, word string) bool {
@@ -457,6 +499,23 @@ func insertWord(dict map[string]struct{}, word string) {
 	}
 }
 
+func compoundEntryFlags(line string, affix *dictConfig) []string {
+	idx := strings.Index(line, "/")
+	if idx == -1 {
+		return nil
+	}
+	_, flags, found := strings.Cut(line[idx+1:], "/")
+	if !found {
+		flags = line[idx+1:]
+	}
+	flags = affix.normalizeFlags(flags)
+	tokens, err := affix.splitFlags(flags)
+	if err != nil {
+		return nil
+	}
+	return tokens
+}
+
 // NewGoSpellReader creates a GoSpell from io.Readers for Hunspell AFF and DIC data.
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	affBytes, err := io.ReadAll(aff)
@@ -513,26 +572,60 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	gs := GoSpell{
-		dict:            make(map[string]struct{}),
-		compoundOnly:    affix.compoundOnlyWords,
-		compoundBegin:   affix.compoundBeginWords,
-		compoundMiddle:  affix.compoundMiddleWords,
-		compoundEnd:     affix.compoundEndWords,
-		forceUcaseWords: affix.forceUcaseWords,
-		compoundMin:     affix.CompoundMin,
-		flagMode:        affix.flagMode,
-		compounds:       make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		dict:                make(map[string]struct{}),
+		wordFlags:           make(map[string]map[string]struct{}),
+		wordEntryCount:      make(map[string]int),
+		onlyCompoundCount:   make(map[string]int),
+		onlyCompoundSurface: make(map[string]struct{}),
+		compoundOnly:        affix.compoundOnlyWords,
+		compoundBegin:       affix.compoundBeginWords,
+		compoundMiddle:      affix.compoundMiddleWords,
+		compoundEnd:         affix.compoundEndWords,
+		forceUcaseWords:     affix.forceUcaseWords,
+		compoundBeginFlag:   affix.CompoundBeginFlag,
+		compoundMiddleFlag:  affix.CompoundMiddleFlag,
+		compoundEndFlag:     affix.CompoundEndFlag,
+		compoundOnlyFlag:    affix.CompoundOnly,
+		compoundPatterns:    affix.checkCompoundPatterns,
+		compoundMin:         affix.CompoundMin,
+		flagMode:            affix.flagMode,
+		compounds:           make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
 	words := []string{}
 	for scanner.Scan() {
 		line := scanner.Text()
+		rawFlags := compoundEntryFlags(line, affix)
+		compoundOnlyEntry := false
+		for _, flag := range rawFlags {
+			if flag == affix.CompoundOnly {
+				compoundOnlyEntry = true
+				break
+			}
+		}
 		words, err = affix.expand(line, words)
 		if err != nil {
 			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
+		seen := make(map[string]struct{}, len(words))
 		for _, word := range words {
+			if _, ok := seen[word]; ok {
+				continue
+			}
+			seen[word] = struct{}{}
 			insertWord(gs.dict, word)
+			gs.wordEntryCount[word]++
+			if compoundOnlyEntry {
+				gs.onlyCompoundCount[word]++
+			}
+			if len(rawFlags) > 0 {
+				if gs.wordFlags[word] == nil {
+					gs.wordFlags[word] = make(map[string]struct{}, len(rawFlags))
+				}
+				for _, flag := range rawFlags {
+					gs.wordFlags[word][flag] = struct{}{}
+				}
+			}
 			if strings.ContainsRune(word, ' ') {
 				if gs.blockedCompound == nil {
 					gs.blockedCompound = make(map[string]struct{})
@@ -541,6 +634,16 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			}
 			if len(word) > gs.maxWordLen {
 				gs.maxWordLen = len(word)
+			}
+		}
+		if compoundOnlyEntry {
+			base := line
+			if idx := strings.Index(base, "/"); idx >= 0 {
+				base = base[:idx]
+			}
+			base = strings.TrimSpace(base)
+			if base != "" {
+				gs.onlyCompoundSurface[base] = struct{}{}
 			}
 		}
 	}

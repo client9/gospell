@@ -613,6 +613,182 @@ goobarbaz
 	}
 }
 
+func TestCompoundPatternRegression2970240(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+CHECKCOMPOUNDPATTERN 1
+CHECKCOMPOUNDPATTERN le fi
+COMPOUNDFLAG c
+`
+	sampleDic := `3
+first/c
+middle/c
+last/c
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"firstmiddlelast", true},
+		{"lastmiddlefirst", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundPatternRegression2970242(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+CHECKCOMPOUNDPATTERN 1
+CHECKCOMPOUNDPATTERN /a /b
+COMPOUNDFLAG c
+`
+	sampleDic := `3
+foo/ac
+bar/c
+baz/bc
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foobar", true},
+		{"foobaz", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundBeginEndRegression2999225(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDRULE 1
+COMPOUNDRULE ab
+COMPOUNDBEGIN A
+COMPOUNDEND B
+`
+	sampleDic := `3
+foo/aA
+bar/b
+baz/B
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foobar", true},
+		{"foobaz", true},
+		{"barfoo", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestOnlyInCompoundRegression2(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+ONLYINCOMPOUND O
+COMPOUNDFLAG A
+COMPOUNDPERMITFLAG P
+
+SFX B Y 1
+SFX B 0 s/OP .
+
+CHECKCOMPOUNDPATTERN 1
+CHECKCOMPOUNDPATTERN 0/B /A
+`
+	sampleDic := `2
+foo/A
+pseudo/AB
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"foopseudo", true},
+		{"pseudosfoo", true},
+		{"pseudos", false},
+		{"foopseudos", false},
+		{"pseudofoo", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestOnlyInCompoundHomonymRegression1592880(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+
+SFX N Y 1
+SFX N 0 n .
+
+SFX S Y 1
+SFX S 0 s .
+
+SFX P Y 1
+SFX P 0 en .
+
+SFX Q Y 2
+SFX Q 0 e .
+SFX Q 0 en .
+
+COMPOUNDEND z
+COMPOUNDPERMITFLAG c
+ONLYINCOMPOUND o
+`
+	sampleDic := `3
+weg/Qoz
+weg/P
+wege
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"weg", true},
+		{"wege", true},
+		{"wegen", true},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestDigitsInWordsCompoundRule(t *testing.T) {
 	sampleAff := `
 SET UTF-8
