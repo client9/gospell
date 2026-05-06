@@ -2,6 +2,7 @@ package gospell
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -402,6 +403,68 @@ bar/XPS
 	}
 }
 
+func TestCompoundAffixExpansionBounded(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDFLAG X
+
+PFX P Y 1
+PFX P   0     pre         .
+
+SFX S Y 1
+SFX S   0     suf         .
+`
+	aff, err := newDictConfig(strings.NewReader(sampleAff))
+	if err != nil {
+		t.Fatalf("Unable to create dict config: %v", err)
+	}
+
+	got, err := aff.expand("foo/XPS", nil)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	want := []string{"foo", "foosuf", "prefoo", "prefoosuf"}
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expand mismatch: got %v want %v", got, want)
+	}
+}
+
+func TestCompoundAffixDeepChainRegression(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+COMPOUNDMIN 1
+
+SFX A Y 1
+SFX A 0 s/123 .
+
+SFX 1 Y 1
+SFX 1 0 bar .
+
+SFX 2 Y 1
+SFX 2 0 baz .
+
+PFX 3 Y 1
+PFX 3 0 un .
+`
+	aff, err := newDictConfig(strings.NewReader(sampleAff))
+	if err != nil {
+		t.Fatalf("Unable to create dict config: %v", err)
+	}
+
+	got, err := aff.expand("foo/A3", nil)
+	if err != nil {
+		t.Fatalf("expand failed: %v", err)
+	}
+	want := []string{"foo", "foos", "foosbar", "foosbaz", "unfoo", "unfoos", "unfoosbar", "unfoosbaz"}
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expand mismatch: got %v want %v", got, want)
+	}
+}
+
 func TestCompoundForbidFlags(t *testing.T) {
 	sampleAff := `
 SET UTF-8
@@ -472,6 +535,76 @@ foobaz/Z
 	}{
 		{"foobaz", true},
 		{"foobazexample", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestForceUcaseCompound(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+TRY F
+FORCEUCASE A
+COMPOUNDFLAG C
+`
+	sampleDic := `3
+foo/C
+bar/C
+baz/CA
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"bar", true},
+		{"baz", true},
+		{"foobar", true},
+		{"Foobaz", true},
+		{"foobaz", false},
+		{"foobazbar", true},
+		{"Foobarbaz", true},
+		{"foobarbaz", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestLimitMultipleCompoundingRegression(t *testing.T) {
+	sampleAff := `
+SET UTF-8
+TRY esianrtolcdugmphbyfvkwz'
+COMPOUNDFLAG x
+`
+	sampleDic := `6
+foo/x
+bar/x
+baz/x
+goobar
+goobarbaz
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"foobar", true},
+		{"foobarbaz", false},
+		{"goobar", true},
+		{"goobarbaz", true},
 	}
 	for pos, tt := range cases {
 		if got := gs.Spell(tt.word); got != tt.want {

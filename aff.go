@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -39,10 +39,10 @@ type compoundRules struct {
 }
 
 type expandedWord struct {
-	word  string
-	flags string
-	mask  compoundMask
-	state affixState
+	word   string
+	flags  string
+	mask   compoundMask
+	state  affixState
 	forbid bool
 }
 
@@ -55,8 +55,6 @@ const (
 	compoundMiddle
 	compoundEnd
 )
-
-const maxAffixExpansionDepth = 3
 
 const (
 	statePrefix affixState = 1 << iota
@@ -91,10 +89,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		}
 		if a.Type == prefix {
 			out = append(out, expandedWord{
-				word:  r.AffixText + word,
-				flags: appendFlags(flags, r.OutFlags, mode),
-				mask:  mask,
-				state: outState,
+				word:   r.AffixText + word,
+				flags:  appendFlags(flags, r.OutFlags, mode),
+				mask:   mask,
+				state:  outState,
 				forbid: forbid,
 			})
 		} else {
@@ -103,10 +101,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 				stripWord = word[:len(word)-len(r.Strip)]
 			}
 			out = append(out, expandedWord{
-				word:  stripWord + r.AffixText,
-				flags: appendFlags(flags, r.OutFlags, mode),
-				mask:  mask,
-				state: outState,
+				word:   stripWord + r.AffixText,
+				flags:  appendFlags(flags, r.OutFlags, mode),
+				mask:   mask,
+				state:  outState,
 				forbid: forbid,
 			})
 		}
@@ -124,26 +122,28 @@ type rule struct {
 type dictConfig struct {
 	Flag               string
 	flagMode           flagMode
-	TryChars          string
-	WordChars         string
+	TryChars           string
+	WordChars          string
 	NoSuggestFlag      string
+	ForceUcaseFlag     string
 	CompoundFlag       rune
 	CompoundPermitFlag rune
 	CompoundForbidFlag rune
-	IconvReplacements []string
-	Replacements      [][2]string
+	IconvReplacements  []string
+	Replacements       [][2]string
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
-	AffixMap          map[string]*affix
-	CompoundMin       int
-	CompoundOnly      string
-	CompoundRule      []string
-	compoundMap       map[string][]string
-	compoundBeginWords    map[string]struct{}
-	compoundMiddleWords   map[string]struct{}
-	compoundEndWords      map[string]struct{}
+	AffixMap               map[string]*affix
+	CompoundMin            int
+	CompoundOnly           string
+	CompoundRule           []string
+	compoundMap            map[string][]string
+	compoundBeginWords     map[string]struct{}
+	compoundMiddleWords    map[string]struct{}
+	compoundEndWords       map[string]struct{}
 	compoundForbiddenWords map[string]struct{}
-	compoundOnlyWords     map[string]struct{}
+	compoundOnlyWords      map[string]struct{}
+	forceUcaseWords        map[string]struct{}
 	// Scratch slices reused across expand calls to avoid per-entry allocations.
 	prefixScratch  []*affix
 	suffixScratch  []*affix
@@ -183,13 +183,13 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	}
 	added := make(map[string]struct{})
 	seen := make(map[string]struct{})
-	if err := a.expandState(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, &out); err != nil {
+	if err := a.expandState(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]struct{}, used map[string]struct{}, seen map[string]struct{}, depth int, out *[]string) error {
+func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]struct{}, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]string) error {
 	flags = a.normalizeFlags(flags)
 	keys, err := a.splitFlags(flags)
 	if err != nil {
@@ -204,6 +204,12 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 		if _, ok := a.compoundMap[key]; ok {
 			a.compoundMap[key] = append(a.compoundMap[key], word)
 		}
+		if key == a.ForceUcaseFlag {
+			if a.forceUcaseWords == nil {
+				a.forceUcaseWords = make(map[string]struct{})
+			}
+			a.forceUcaseWords[word] = struct{}{}
+		}
 		if a.isCompoundOnlyFlag(key) {
 			compoundOnly = true
 			continue
@@ -216,13 +222,23 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 			added[word] = struct{}{}
 		}
 	}
-	if depth >= maxAffixExpansionDepth {
-		return nil
-	}
 	applyKeys := func(keys []string, wantType affixType) error {
 		for _, key := range keys {
 			if a.isCompoundOnlyFlag(key) || a.isCompoundRuleFlag(key) {
 				continue
+			}
+			nextPrefixCount := prefixCount
+			nextSuffixCount := suffixCount
+			if wantType == prefix {
+				if prefixCount >= 1 {
+					continue
+				}
+				nextPrefixCount++
+			} else {
+				if suffixCount >= 2 {
+					continue
+				}
+				nextSuffixCount++
 			}
 			if _, ok := used[key]; ok {
 				continue
@@ -241,7 +257,7 @@ func (a *dictConfig) expandState(word, flags string, compoundOnly bool, currentM
 			for _, ew := range expanded {
 				nextOnly := compoundOnly
 				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
-				if err := a.expandState(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, depth+1, out); err != nil {
+				if err := a.expandState(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
 					return err
 				}
 			}
@@ -478,15 +494,16 @@ type matcherCacheKey struct {
 
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
-		Flag:                  "ASCII",
-		flagMode:              flagASCII,
-		AffixMap:              make(map[string]*affix),
-		compoundMap:           make(map[string][]string),
-		compoundBeginWords:    make(map[string]struct{}),
-		compoundMiddleWords:   make(map[string]struct{}),
-		compoundEndWords:      make(map[string]struct{}),
+		Flag:                   "ASCII",
+		flagMode:               flagASCII,
+		AffixMap:               make(map[string]*affix),
+		compoundMap:            make(map[string][]string),
+		compoundBeginWords:     make(map[string]struct{}),
+		compoundMiddleWords:    make(map[string]struct{}),
+		compoundEndWords:       make(map[string]struct{}),
 		compoundForbiddenWords: make(map[string]struct{}),
 		compoundOnlyWords:      make(map[string]struct{}),
+		forceUcaseWords:        make(map[string]struct{}),
 		CompoundMin:            3,
 	}
 	// Many affix rules share the same condition pattern (e.g. ".", "e",
@@ -594,6 +611,11 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("NOSUGGEST stanza had %d fields, expected 2", len(parts))
 			}
 			aff.NoSuggestFlag = parts[1]
+		case "FORCEUCASE":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("FORCEUCASE stanza had %d fields, expected 2", len(parts))
+			}
+			aff.ForceUcaseFlag = parts[1]
 		case "WORDCHARS":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("WORDCHAR stanza had %d fields, expected 2", len(parts))

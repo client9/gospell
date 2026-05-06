@@ -22,19 +22,20 @@ type iconvRule struct {
 
 // GoSpell is main struct
 type GoSpell struct {
-	dict             map[string]struct{}
-	compoundOnly     map[string]struct{}
-	compoundBegin    map[string]struct{}
-	compoundMiddle   map[string]struct{}
-	compoundEnd      map[string]struct{}
+	dict              map[string]struct{}
+	compoundOnly      map[string]struct{}
+	compoundBegin     map[string]struct{}
+	compoundMiddle    map[string]struct{}
+	compoundEnd       map[string]struct{}
 	compoundForbidden map[string]struct{}
-	blockedCompound  map[string]struct{}
-	compoundMin      int
-	maxWordLen       int
-	flagMode         flagMode
-	iconvRules       []iconvRule
-	compounds        []*regexp.Regexp
-	suggester        Suggestions
+	forceUcaseWords   map[string]struct{}
+	blockedCompound   map[string]struct{}
+	compoundMin       int
+	maxWordLen        int
+	flagMode          flagMode
+	iconvRules        []iconvRule
+	compounds         []*regexp.Regexp
+	suggester         Suggestions
 }
 
 // InputConversion does any character substitution before checking
@@ -293,12 +294,19 @@ func (s *GoSpell) spellCompound(word string) bool {
 	if len(runes) < 2*s.compoundMin {
 		return false
 	}
-	return s.spellCompoundFromRunes(runes)
+	ok, parts := s.spellCompoundFromRunes(runes, caseStyle(word))
+	if !ok {
+		return false
+	}
+	if parts >= 3 && caseStyle(word) == allLower && s.compoundTypoMatchesDict(word) {
+		return false
+	}
+	return true
 }
 
-func (s *GoSpell) spellCompoundFromRunes(runes []rune) bool {
+func (s *GoSpell) spellCompoundFromRunes(runes []rune, wholeStyle wordCase) (bool, int) {
 	if len(runes) < s.compoundMin {
-		return false
+		return false, 0
 	}
 	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
 		prefix := string(runes[:i])
@@ -306,19 +314,19 @@ func (s *GoSpell) spellCompoundFromRunes(runes []rune) bool {
 			continue
 		}
 		suffix := string(runes[i:])
-		if s.compoundFinalPart(suffix) {
-			return true
+		if s.compoundFinalPart(suffix, wholeStyle) {
+			return true, 2
 		}
-		if s.spellCompoundFromMiddleRunes([]rune(suffix)) {
-			return true
+		if ok, parts := s.spellCompoundFromMiddleRunes([]rune(suffix), wholeStyle); ok {
+			return true, 1 + parts
 		}
 	}
-	return false
+	return false, 0
 }
 
-func (s *GoSpell) spellCompoundFromMiddleRunes(runes []rune) bool {
+func (s *GoSpell) spellCompoundFromMiddleRunes(runes []rune, wholeStyle wordCase) (bool, int) {
 	if len(runes) < s.compoundMin {
-		return false
+		return false, 0
 	}
 	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
 		prefix := string(runes[:i])
@@ -326,65 +334,105 @@ func (s *GoSpell) spellCompoundFromMiddleRunes(runes []rune) bool {
 			continue
 		}
 		suffix := string(runes[i:])
-		if s.compoundFinalPart(suffix) {
-			return true
+		if s.compoundFinalPart(suffix, wholeStyle) {
+			return true, 2
 		}
-		if s.spellCompoundFromMiddleRunes([]rune(suffix)) {
-			return true
+		if ok, parts := s.spellCompoundFromMiddleRunes([]rune(suffix), wholeStyle); ok {
+			return true, 1 + parts
 		}
 	}
-	return false
+	return false, 0
 }
 
 func (s *GoSpell) compoundStartPart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
-	if s.compoundBegin != nil {
-		if _, ok := s.compoundBegin[word]; ok {
-			return true
-		}
-	}
-	if s.compoundOnly != nil {
-		if _, ok := s.compoundOnly[word]; ok {
-			return true
-		}
-	}
-	return false
+	return s.compoundSetContains(s.compoundBegin, word) || s.compoundSetContains(s.compoundOnly, word)
 }
 
 func (s *GoSpell) compoundMiddlePart(word string) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
-	if s.compoundMiddle != nil {
-		if _, ok := s.compoundMiddle[word]; ok {
-			return true
+	return s.compoundSetContains(s.compoundMiddle, word) || s.compoundSetContains(s.compoundOnly, word)
+}
+
+func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
+	if compoundRuneLen(word) < s.compoundMin {
+		return false
+	}
+	if s.forceUcaseWords != nil {
+		if _, ok := s.forceUcaseWords[word]; ok && wholeStyle == allLower {
+			return false
 		}
 	}
-	if s.compoundOnly != nil {
-		if _, ok := s.compoundOnly[word]; ok {
+	return s.compoundSetContains(s.compoundOnly, word) || s.compoundSetContains(s.compoundEnd, word)
+}
+
+func (s *GoSpell) compoundSetContains(set map[string]struct{}, word string) bool {
+	if len(set) == 0 {
+		return false
+	}
+	if _, ok := set[word]; ok {
+		return true
+	}
+	lower := strings.ToLower(word)
+	if lower != word {
+		if _, ok := set[lower]; ok {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *GoSpell) compoundFinalPart(word string) bool {
-	if compoundRuneLen(word) < s.compoundMin {
-		return false
-	}
-	if s.compoundOnly != nil {
-		if _, ok := s.compoundOnly[word]; ok {
-			return true
+func (s *GoSpell) compoundTypoMatchesDict(word string) bool {
+	for dictWord := range s.dict {
+		if compoundRuneLen(dictWord) != compoundRuneLen(word) {
+			continue
 		}
-	}
-	if s.compoundEnd != nil {
-		if _, ok := s.compoundEnd[word]; ok {
+		if oneEditAway(word, dictWord) {
 			return true
 		}
 	}
 	return false
+}
+
+func oneEditAway(a, b string) bool {
+	ar := []rune(a)
+	br := []rune(b)
+	if absIntLocal(len(ar)-len(br)) > 1 {
+		return false
+	}
+	if len(ar) == len(br) {
+		diff := 0
+		for i := range ar {
+			if ar[i] != br[i] {
+				diff++
+				if diff > 1 {
+					return false
+				}
+			}
+		}
+		return diff == 1
+	}
+	if len(ar) > len(br) {
+		ar, br = br, ar
+	}
+	i, j, edits := 0, 0, 0
+	for i < len(ar) && j < len(br) {
+		if ar[i] == br[j] {
+			i++
+			j++
+			continue
+		}
+		edits++
+		if edits > 1 {
+			return false
+		}
+		j++
+	}
+	return true
 }
 
 func compoundRuneLen(word string) int {
@@ -465,14 +513,15 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	gs := GoSpell{
-		dict:             make(map[string]struct{}),
-		compoundOnly:     affix.compoundOnlyWords,
-		compoundBegin:    affix.compoundBeginWords,
-		compoundMiddle:   affix.compoundMiddleWords,
-		compoundEnd:      affix.compoundEndWords,
-		compoundMin:      affix.CompoundMin,
-		flagMode:         affix.flagMode,
-		compounds:         make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		dict:            make(map[string]struct{}),
+		compoundOnly:    affix.compoundOnlyWords,
+		compoundBegin:   affix.compoundBeginWords,
+		compoundMiddle:  affix.compoundMiddleWords,
+		compoundEnd:     affix.compoundEndWords,
+		forceUcaseWords: affix.forceUcaseWords,
+		compoundMin:     affix.CompoundMin,
+		flagMode:        affix.flagMode,
+		compounds:       make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
 	}
 
 	words := []string{}
