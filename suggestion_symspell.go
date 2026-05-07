@@ -3,6 +3,7 @@ package gospell
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/agnivade/levenshtein"
 )
@@ -53,9 +54,15 @@ func (s *SymSpellSuggester) Init(src SuggestionSource) error {
 		return true
 	})
 
+	// Capacity estimate: each word produces O(PrefixLength * MaxDistance) unique
+	// delete keys, typically ~8x the word count for default options.
 	s.deletes = make(map[string][]int, len(s.words)*8)
+	seen := make(map[string]struct{}, 32)
 	for i, word := range s.words {
-		s.addDeletes(i, word)
+		s.addDeletes(i, word, seen)
+		for k := range seen {
+			delete(seen, k)
+		}
 	}
 	return nil
 }
@@ -86,7 +93,7 @@ func (s *SymSpellSuggester) Suggest(word string, limit int) ([]Suggestion, error
 		if candidate == word {
 			continue
 		}
-		if absIntSymSpell(len(candidate)-len(word)) > s.opts.MaxDistance {
+		if absIntLocal(utf8.RuneCountInString(candidate)-utf8.RuneCountInString(word)) > s.opts.MaxDistance {
 			continue
 		}
 
@@ -115,8 +122,7 @@ func (s *SymSpellSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	return out, nil
 }
 
-func (s *SymSpellSuggester) addDeletes(id int, word string) {
-	seen := make(map[string]struct{}, 16)
+func (s *SymSpellSuggester) addDeletes(id int, word string, seen map[string]struct{}) {
 	runes := []rune(word)
 	if len(runes) == 0 {
 		return
@@ -145,6 +151,9 @@ func (s *SymSpellSuggester) collectCandidates(word string, visit func(id int)) {
 	})
 }
 
+// symSpellGenerateDeletes emits every subsequence of runes reachable by
+// deleting 0..maxDeletes positions. It uses an explicit stack to avoid heap
+// allocation of a recursive closure.
 func symSpellGenerateDeletes(runes []rune, maxDeletes int, seen map[string]struct{}, visit func(string)) {
 	if len(runes) == 0 {
 		return
@@ -153,35 +162,46 @@ func symSpellGenerateDeletes(runes []rune, maxDeletes int, seen map[string]struc
 		maxDeletes = 0
 	}
 
+	type frame struct {
+		pos, deleted int
+	}
+
 	buf := make([]rune, 0, len(runes))
-	var walk func(pos, deleted int)
-	walk = func(pos, deleted int) {
-		if deleted > maxDeletes {
-			return
+	// Each stack entry records the buf length at the time the frame was pushed
+	// so we can restore it when we unwind past a "keep" branch.
+	type stackEntry struct {
+		frame
+		bufLen int
+	}
+
+	stack := make([]stackEntry, 0, len(runes)*(maxDeletes+1))
+	stack = append(stack, stackEntry{frame{0, 0}, 0})
+
+	for len(stack) > 0 {
+		top := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		// Restore buf to the length saved when this frame was pushed.
+		buf = buf[:top.bufLen]
+
+		if top.deleted > maxDeletes {
+			continue
 		}
-		if pos == len(runes) {
+		if top.pos == len(runes) {
 			key := string(buf)
-			if _, ok := seen[key]; ok {
-				return
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				visit(key)
 			}
-			seen[key] = struct{}{}
-			visit(key)
-			return
+			continue
 		}
 
-		buf = append(buf, runes[pos])
-		walk(pos+1, deleted)
-		buf = buf[:len(buf)-1]
+		// Push delete branch first (explored second, LIFO) so that the keep
+		// branch is explored depth-first in the same order as the recursive
+		// version.
+		stack = append(stack, stackEntry{frame{top.pos + 1, top.deleted + 1}, len(buf)})
 
-		walk(pos+1, deleted+1)
+		buf = append(buf, runes[top.pos])
+		stack = append(stack, stackEntry{frame{top.pos + 1, top.deleted}, len(buf)})
 	}
-
-	walk(0, 0)
-}
-
-func absIntSymSpell(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
