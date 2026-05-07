@@ -121,8 +121,12 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 			}
 		}
 		if a.Type == prefix {
+			stripWord := word
+			if r.Strip != "" && strings.HasPrefix(word, r.Strip) {
+				stripWord = word[len(r.Strip):]
+			}
 			out = append(out, expandedWord{
-				word:       r.AffixText + word,
+				word:       r.AffixText + stripWord,
 				flags:      appendFlags(flags, r.OutFlags, mode),
 				mask:       mask,
 				state:      outState,
@@ -161,6 +165,7 @@ type dictConfig struct {
 	WordChars           string
 	NoSuggestFlag       string
 	NeedAffixFlag       string
+	ForbiddenWordFlag   string
 	ForceUcaseFlag      string
 	CompoundBeginFlag   string
 	CompoundMiddleFlag  string
@@ -846,6 +851,11 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("NEEDAFFIX stanza had %d fields, expected 2", len(parts))
 			}
 			aff.NeedAffixFlag = parts[1]
+		case "FORBIDDENWORD":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("FORBIDDENWORD stanza had %d fields, expected 2", len(parts))
+			}
+			aff.ForbiddenWordFlag = parts[1]
 		case "NOSPLITSUGS":
 			// suggestion-only option; no effect on spell checking
 		case "MAXNGRAMSUGS":

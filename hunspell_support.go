@@ -47,7 +47,7 @@ var hunspellSupportMatrix = []hunspellSupportEntry{
 	{Directive: "COMPLEXPREFIXES", Status: supportUnsupported, Notes: "complex prefix handling not implemented"},
 	{Directive: "FLAG", Status: supportPartial, Notes: "ASCII-style single-byte flags supported"},
 	{Directive: "FORCEUCASE", Status: supportPartial, Notes: "compound-final capitalization supported"},
-	{Directive: "FORBIDDENWORD", Status: supportUnsupported, Notes: "forbidden-word flag not implemented"},
+	{Directive: "FORBIDDENWORD", Status: supportSupported, Notes: "forbidden word and its affixed forms are blocked; homonym without flag rescues standalone use"},
 	{Directive: "FULLSTRIP", Status: supportUnsupported, Notes: "full strip not implemented"},
 	{Directive: "IGNORE", Status: supportUnsupported, Notes: "ignore-map handling not implemented"},
 	{Directive: "KEEPCASE", Status: supportUnsupported, Notes: "keepcase handling not implemented"},

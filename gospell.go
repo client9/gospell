@@ -191,9 +191,34 @@ func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
 	return duplicates, nil
 }
 
+// isWordForbidden returns true when the word is blocked by FORBIDDENWORD.
+// A non-forbidden root dic entry (IsRoot && !ForbiddenWord) acts as a homonym
+// and rescues the word.  Derived forms (affix expansions) do not rescue a word
+// that has an explicit FORBIDDENWORD dic entry.
+func (s *GoSpell) isWordForbidden(word string) bool {
+	entries := s.surfaces[word]
+	if len(entries) == 0 {
+		return false
+	}
+	hasForbidden := false
+	for _, entry := range entries {
+		if entry.ForbiddenWord {
+			hasForbidden = true
+		} else if entry.IsRoot {
+			return false
+		}
+	}
+	return hasForbidden
+}
+
 // Spell reports whether word is correctly spelled.
 func (s *GoSpell) Spell(word string) bool {
 	word = s.InputConversion([]byte(word))
+	// FORBIDDENWORD entries must block the word even when a case-folded form
+	// would otherwise be accepted (e.g. "Kg" forbidden while "kg" is valid).
+	if s.isWordForbidden(word) {
+		return false
+	}
 	if s.spellExact(word) {
 		return true
 	}
@@ -860,6 +885,7 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	entry := surfaceEntry{
 		Word:              word,
 		StandaloneAllowed: !rec.needsAffix,
+		IsRoot:            rec.state == 0,
 		RawFlags:          append([]string(nil), rawFlags...),
 	}
 	if affix == nil {
@@ -867,6 +893,11 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	}
 	if (rec.forbid && rec.state == 0) || hasFlagToken(rawFlags, affix.CompoundForbidFlag) {
 		entry.CompoundForbidden = true
+	}
+	if affix.ForbiddenWordFlag != "" && hasFlagToken(rawFlags, affix.ForbiddenWordFlag) {
+		entry.StandaloneAllowed = false
+		entry.CompoundForbidden = true
+		entry.ForbiddenWord = true
 	}
 	if rec.compoundOnly || hasFlagToken(rawFlags, affix.CompoundOnly) {
 		entry.OnlyInCompound = true

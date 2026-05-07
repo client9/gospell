@@ -1717,3 +1717,128 @@ PFX C 0 pseudopre/X .
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// FORBIDDENWORD
+// ---------------------------------------------------------------------------
+
+func TestForbiddenWordBasic(t *testing.T) {
+	// forbiddenword.*: X flags a word (or its forms) as forbidden.
+	// Homonym foo/S (no X) keeps "foo" valid standalone but "foo" in compounds
+	// is still blocked because foo/YX has CompoundForbidden.
+	// bars/X and foos/X explicitly forbid those forms.
+	// Case variants Kg/X, KG/X, Cm/X are forbidden while kg and cm are good.
+	sampleAff := `FORBIDDENWORD X
+COMPOUNDFLAG Y
+
+SFX A Y 1
+SFX A 0 s .
+`
+	sampleDic := `9
+foo/S
+foo/YX
+bar/YS
+bars/X
+foos/X
+kg
+Kg/X
+KG/X
+cm
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"bar", true},
+		{"kg", true},
+		{"cm", true},
+		{"bars", false},
+		{"foos", false},
+		{"foobar", false},
+		{"barfoo", false},
+		{"Kg", false},
+		{"KG", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("ForbiddenWordBasic %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestForbiddenWordCompoundRule(t *testing.T) {
+	// opentaal_forbiddenword1.*: compound rule WW/WWW builds valid forms;
+	// foowordbar/FS is explicitly forbidden along with its suffixed form foowordbars.
+	sampleAff := `FORBIDDENWORD F
+COMPOUNDRULE 2
+COMPOUNDRULE WW
+COMPOUNDRULE WWW
+
+SFX S Y 1
+SFX S 0 s .
+`
+	sampleDic := `4
+foo/W
+word/W
+bar/WS
+foowordbar/FS
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"fooword", true},
+		{"wordbar", true},
+		{"barwordfoo", true},
+		{"foowordbar", false},
+		{"foowordbars", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("ForbiddenWordCompoundRule %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestForbiddenWordCompoundFlag(t *testing.T) {
+	// opentaal_forbiddenword2.*: COMPOUNDFLAG-based compounds; foowordbar/FS
+	// forbids the 3-part compound and its suffixed form.
+	sampleAff := `FORBIDDENWORD F
+COMPOUNDFLAG W
+
+SFX S Y 1
+SFX S 0 s .
+`
+	sampleDic := `4
+foo/WS
+word/W
+bar/WS
+foowordbar/FS
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"fooword", true},
+		{"wordbar", true},
+		{"barwordfoo", true},
+		{"barwordfoos", true},
+		{"foowordbar", false},
+		{"foowordbars", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("ForbiddenWordCompoundFlag %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}

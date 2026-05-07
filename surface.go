@@ -9,6 +9,8 @@ type surfaceEntry struct {
 	CompoundMiddleAllowed bool
 	CompoundEndAllowed    bool
 	CompoundForbidden     bool
+	ForbiddenWord         bool // set by FORBIDDENWORD; blocks all use including case-fallback
+	IsRoot                bool // true when the form came directly from a dic entry (state==0)
 	OnlyInCompound        bool
 	RawFlags              []string
 }
