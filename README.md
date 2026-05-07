@@ -26,6 +26,8 @@ The package keeps the core checker small and lets you choose the suggestion stra
 - Pluggable suggestion engines
 - Built-in reference engines:
   - brute-force Levenshtein
+  - English/QWERTY mutation suggester
+  - SymSpell-style delete index
   - hashed trigram index with Levenshtein rerank
 
 ## Install
@@ -95,6 +97,30 @@ if err := gs.SetSuggester(gospell.NewTrigramSuggester(
 }
 ```
 
+For a zero-index strategy that generates English/QWERTY mutations on the fly:
+
+```go
+if err := gs.SetSuggester(gospell.NewMutationSuggester(
+	gospell.MutationOptions{CandidateCap: 256},
+)); err != nil {
+	log.Fatal(err)
+}
+```
+
+For a delete-based strategy that usually sits between brute force and the
+trigram index in cost:
+
+```go
+if err := gs.SetSuggester(gospell.NewSymSpellSuggester(
+	gospell.SymSpellOptions{
+		MaxDistance:  2,
+		PrefixLength: 7,
+	},
+)); err != nil {
+	log.Fatal(err)
+}
+```
+
 ### Suggestion Engines
 
 `gospell` ships with a small interface so you can swap suggestion strategies without changing the checker:
@@ -109,9 +135,45 @@ type Suggestions interface {
 This makes it easy to experiment with:
 
 - brute-force distance scoring
+- query-time mutation generation
+- delete-index candidate generation
 - n-gram or trigram indexing
 - mutation-based candidate generation
 - chained or composite engines
+
+### Mutation-Based Suggestions
+
+The mutation suggester takes the misspelled word, generates a bounded set of
+single-edit candidates, and checks each candidate against the dictionary. It
+does not build an index up front.
+
+The current first pass assumes English and a QWERTY keyboard:
+
+- deletions and adjacent transpositions are always generated
+- substitutions prefer nearby keyboard keys first, then fall back to the
+  English alphabet
+- insertions use nearby keyboard keys first, then the English alphabet
+
+That keeps startup cost near zero while still finding common typos such as
+missing letters, doubled letters, transpositions, and near-key substitutions.
+
+See [`docs/mutation-suggestions.md`](/Users/nickg/projects/gospell/docs/mutation-suggestions.md)
+for a longer explanation of the approach and tradeoffs.
+
+### SymSpell-Style Suggestions
+
+The delete-index engine stores each dictionary word under the strings that can
+be formed by deleting up to `MaxDistance` runes from the word prefix. A query
+word generates the same family of deletes, and matching delete strings recover
+a much smaller candidate set than scanning the full dictionary.
+
+That works because nearby misspellings tend to share at least one delete form.
+For example, if `sillly` should be `silly`, both words share the delete form
+`silly`. Once the candidate set is small, the engine reranks with a true
+Levenshtein distance so the final ordering is easy to interpret.
+
+See [`docs/symspell-suggestions.md`](/Users/nickg/projects/gospell/docs/symspell-suggestions.md)
+for a longer explanation of the data structure and tradeoffs.
 
 ## Word Lists
 
@@ -165,6 +227,8 @@ The main entry points are:
 - [`NewWordList`](https://pkg.go.dev/github.com/client9/gospell#NewWordList) / [`NewWordListFile`](https://pkg.go.dev/github.com/client9/gospell#NewWordListFile)
 - [`(*GoSpell).Spell`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Spell) — direct base-only check (no WordLists)
 - [`(*GoSpell).SetSuggester`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.SetSuggester) / [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
+- [`NewMutationSuggester`](https://pkg.go.dev/github.com/client9/gospell#NewMutationSuggester)
+- [`NewSymSpellSuggester`](https://pkg.go.dev/github.com/client9/gospell#NewSymSpellSuggester)
 
 ## Hunspell Compatibility
 
