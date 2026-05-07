@@ -42,27 +42,30 @@ func (s *MutationSuggester) Init(src SuggestionSource) error {
 }
 
 // Suggest returns the best matches ordered by edit distance, then keyboard
-// bias, then lexicographic order.
+// penalty, then lexicographic order.
 func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error) {
 	if limit <= 0 || s.src == nil || word == "" {
 		return nil, nil
 	}
 
+	// penalty: 0 = transposition/keyboard neighbor, 1 = generic alphabet, 2 = deletion.
 	best := make(map[string]int, 32)
 	for _, variant := range mutationCaseVariants(word) {
-		s.collectCandidates(variant, func(candidate string, bias int) bool {
+		s.collectCandidates(variant, func(candidate string, penalty int) bool {
 			if candidate == "" || candidate == word {
 				return true
 			}
-			if _, ok := best[candidate]; ok && best[candidate] <= bias {
+			if existing, ok := best[candidate]; ok && existing <= penalty {
 				return true
 			}
 			if !s.src.HasWord(candidate) {
 				return true
 			}
-			best[candidate] = bias
+			best[candidate] = penalty
 			return len(best) < s.opts.CandidateCap
 		})
+		// Stop early across variants once cap is reached; the callback already
+		// stops collectCandidates internally, but we also skip remaining variants.
 		if len(best) >= s.opts.CandidateCap {
 			break
 		}
@@ -73,17 +76,17 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	}
 
 	type scored struct {
-		word string
-		dist int
-		bias int
+		word    string
+		dist    int
+		penalty int
 	}
 
 	results := make([]scored, 0, len(best))
-	for candidate, bias := range best {
+	for candidate, penalty := range best {
 		results = append(results, scored{
-			word: candidate,
-			dist: levenshtein.ComputeDistance(word, candidate),
-			bias: bias,
+			word:    candidate,
+			dist:    levenshtein.ComputeDistance(word, candidate),
+			penalty: penalty,
 		})
 	}
 
@@ -91,8 +94,8 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 		if results[i].dist != results[j].dist {
 			return results[i].dist < results[j].dist
 		}
-		if results[i].bias != results[j].bias {
-			return results[i].bias < results[j].bias
+		if results[i].penalty != results[j].penalty {
+			return results[i].penalty < results[j].penalty
 		}
 		return results[i].word < results[j].word
 	})
@@ -108,33 +111,25 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	return out, nil
 }
 
-func (s *MutationSuggester) collectCandidates(word string, visit func(candidate string, bias int) bool) {
+func (s *MutationSuggester) collectCandidates(word string, visit func(candidate string, penalty int) bool) {
 	runes := []rune(word)
 	if len(runes) == 0 {
 		return
 	}
 
 	seen := make(map[string]int, 64)
-	emit := func(candidate string, bias int) bool {
+	emit := func(candidate string, penalty int) bool {
 		if candidate == word {
 			return true
 		}
-		if old, ok := seen[candidate]; ok && old <= bias {
+		if old, ok := seen[candidate]; ok && old <= penalty {
 			return true
 		}
-		seen[candidate] = bias
-		return visit(candidate, bias)
+		seen[candidate] = penalty
+		return visit(candidate, penalty)
 	}
 
-	// 1. Deletions.
-	for i := range runes {
-		candidate := string(append(append([]rune(nil), runes[:i]...), runes[i+1:]...))
-		if !emit(candidate, 2) {
-			return
-		}
-	}
-
-	// 2. Adjacent transpositions.
+	// 1. Adjacent transpositions (penalty 0 — most natural single-key error).
 	for i := 0; i+1 < len(runes); i++ {
 		if runes[i] == runes[i+1] {
 			continue
@@ -146,7 +141,7 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		}
 	}
 
-	// 3. Keyboard-biased substitutions and insertions.
+	// 2. Keyboard-biased substitutions (penalty 0) then generic alphabet (penalty 1).
 	for i, r := range runes {
 		neighbors := qwertyNeighborsForRune(r)
 		for _, repl := range neighbors {
@@ -168,6 +163,7 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		}
 	}
 
+	// 3. Keyboard-biased insertions (penalty 0) then generic alphabet (penalty 1).
 	for i := 0; i <= len(runes); i++ {
 		neighbors := qwertyInsertionNeighbors(runes, i)
 		for _, repl := range neighbors {
@@ -183,19 +179,33 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 			}
 		}
 	}
+
+	// 4. Deletions last (penalty 2 — least likely to be the intended correction).
+	for i := range runes {
+		candidate := string(append(append([]rune(nil), runes[:i]...), runes[i+1:]...))
+		if !emit(candidate, 2) {
+			return
+		}
+	}
 }
 
 func mutationCaseVariants(word string) []string {
+	runes := []rune(word)
+	// title-cases a rune slice without byte-slicing.
+	toTitle := func(r []rune) string {
+		if len(r) == 0 {
+			return ""
+		}
+		return string(unicode.ToUpper(r[0])) + string(r[1:])
+	}
 	switch caseStyle(word) {
 	case allLower:
-		return []string{word, strings.ToUpper(word[:1]) + word[1:], strings.ToUpper(word)}
+		return []string{word, toTitle(runes), strings.ToUpper(word)}
 	case titleCase:
-		lower := strings.ToLower(word)
-		return []string{word, lower}
+		return []string{word, strings.ToLower(word)}
 	case allUpper:
-		lower := strings.ToLower(word)
-		title := strings.ToUpper(lower[:1]) + lower[1:]
-		return []string{word, lower, title}
+		lower := []rune(strings.ToLower(word))
+		return []string{word, string(lower), toTitle(lower)}
 	default:
 		return []string{word, strings.ToLower(word)}
 	}
