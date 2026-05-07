@@ -54,21 +54,25 @@ func newBenchmarkSpell(b *testing.B) *GoSpell {
 	return gs
 }
 
-func benchmarkSuggestEngine(b *testing.B, suggester Suggestions) {
+// benchmarkSuggestInit measures one-time index construction.
+func benchmarkSuggestInit(b *testing.B, suggester Suggestions) {
 	gs := newBenchmarkSpell(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := gs.SetSuggester(suggester); err != nil {
+		if err := suggester.Init(gs); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
+// benchmarkSuggestQuery measures lookup only against an already initialized
+// suggester. The index build happens once before the timer starts.
 func benchmarkSuggestQuery(b *testing.B, suggester Suggestions, limit int) {
 	gs := newBenchmarkSpell(b)
-	if err := gs.SetSuggester(suggester); err != nil {
+	if err := suggester.Init(gs); err != nil {
 		b.Fatal(err)
 	}
+	gs.suggester = suggester
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -80,7 +84,7 @@ func benchmarkSuggestQuery(b *testing.B, suggester Suggestions, limit int) {
 }
 
 func BenchmarkSetSuggesterLevenshtein(b *testing.B) {
-	benchmarkSuggestEngine(b, NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 2}))
+	benchmarkSuggestInit(b, NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 2}))
 }
 
 func BenchmarkSuggestLevenshtein(b *testing.B) {
@@ -88,7 +92,7 @@ func BenchmarkSuggestLevenshtein(b *testing.B) {
 }
 
 func BenchmarkSetSuggesterTrigram(b *testing.B) {
-	benchmarkSuggestEngine(b, NewTrigramSuggester(TrigramOptions{
+	benchmarkSuggestInit(b, NewTrigramSuggester(TrigramOptions{
 		RerankLimit:   32,
 		MaxLengthDiff: 4,
 	}))
@@ -98,5 +102,31 @@ func BenchmarkSuggestTrigram(b *testing.B) {
 	benchmarkSuggestQuery(b, NewTrigramSuggester(TrigramOptions{
 		RerankLimit:   32,
 		MaxLengthDiff: 4,
+	}), 5)
+}
+
+func BenchmarkSetSuggesterSymSpell(b *testing.B) {
+	benchmarkSuggestInit(b, NewSymSpellSuggester(SymSpellOptions{
+		MaxDistance:  2,
+		PrefixLength: 7,
+	}))
+}
+
+func BenchmarkSuggestSymSpell(b *testing.B) {
+	benchmarkSuggestQuery(b, NewSymSpellSuggester(SymSpellOptions{
+		MaxDistance:  2,
+		PrefixLength: 7,
+	}), 5)
+}
+
+func BenchmarkSetSuggesterMutation(b *testing.B) {
+	benchmarkSuggestInit(b, NewMutationSuggester(MutationOptions{
+		CandidateCap: 256,
+	}))
+}
+
+func BenchmarkSuggestMutation(b *testing.B) {
+	benchmarkSuggestQuery(b, NewMutationSuggester(MutationOptions{
+		CandidateCap: 256,
 	}), 5)
 }
