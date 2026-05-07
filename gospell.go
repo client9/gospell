@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -38,14 +39,21 @@ type GoSpell struct {
 	compoundMiddleFlag string
 	compoundEndFlag    string
 	compoundOnlyFlag   string
-	compoundPatterns   []compoundPatternRule
-	blockedCompound    map[string]struct{}
-	compoundMin        int
-	maxWordLen         int
-	flagMode           flagMode
-	iconvRules         []iconvRule
-	compounds          []*regexp.Regexp
-	suggester          Suggestions
+	compoundPatterns    []compoundPatternRule
+	blockedCompound     map[string]struct{}
+	compoundMin         int
+	maxWordLen          int
+	flagMode            flagMode
+	iconvRules          []iconvRule
+	compounds           []*regexp.Regexp
+	suggester           Suggestions
+	checkCompoundCase   bool
+	checkCompoundDup    bool
+	checkCompoundTriple bool
+	simplifiedTriple    bool
+	checkCompoundRep    bool
+	repReplacements     [][2]string
+	breakEnabled        bool
 }
 
 // InputConversion does any character substitution before checking
@@ -242,6 +250,26 @@ func (s *GoSpell) spellExact(word string) bool {
 	if s.spellSandhiCompound(word) {
 		return true
 	}
+	if s.simplifiedTriple && s.spellSimplifiedTriple(word) {
+		return true
+	}
+	// Default BREAK behavior: split at hyphens and accept if each part is valid.
+	if s.breakEnabled && strings.ContainsRune(word, '-') {
+		parts := strings.Split(word, "-")
+		allOK := true
+		for _, p := range parts {
+			if p == "" {
+				continue
+			}
+			if !s.spellExact(p) {
+				allOK = false
+				break
+			}
+		}
+		if allOK {
+			return true
+		}
+	}
 	return false
 }
 
@@ -338,6 +366,9 @@ func (s *GoSpell) spellCompound(word string) bool {
 	if s.compoundPatternBlocks(parts) {
 		return false
 	}
+	if s.checkCompoundRep && s.repBlocksCompoundParts(parts) {
+		return false
+	}
 	return true
 }
 
@@ -409,6 +440,7 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 	}
 	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
 		prefix := string(runes[:i])
+		suffix := string(runes[i:])
 		if first {
 			if !s.compoundStartPart(prefix) {
 				continue
@@ -416,7 +448,18 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		} else if !s.compoundMiddlePart(prefix) {
 			continue
 		}
-		suffix := string(runes[i:])
+		// Per-boundary checks: compare prefix against the raw suffix string
+		// (not its decomposed parts) so that CHECKCOMPOUNDDUP and CHECKCOMPOUNDCASE
+		// apply at each recursion level independently.
+		if s.checkCompoundDup && prefix == suffix {
+			continue
+		}
+		if s.checkCompoundCase && compoundBoundaryHasCase(prefix, suffix) {
+			continue
+		}
+		if s.checkCompoundTriple && compoundBoundaryHasTriple(prefix, suffix) {
+			continue
+		}
 		if s.compoundFinalPart(suffix, wholeStyle) {
 			return []string{prefix, suffix}, true
 		}
@@ -491,6 +534,26 @@ func (s *GoSpell) wordHasFlag(word, flag string) bool {
 	return ok
 }
 
+// wordOrRootHasFlag checks whether word has flag either via its own wordFlags
+// (root dic entries, state==0) or via the RawFlags carried in its surface
+// entries (which record the original dic entry's flags for derived forms).
+func (s *GoSpell) wordOrRootHasFlag(word, flag string) bool {
+	if flag == "" {
+		return false
+	}
+	if s.wordHasFlag(word, flag) {
+		return true
+	}
+	for _, entry := range s.surfaces[word] {
+		for _, f := range entry.RawFlags {
+			if f == flag {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
 	if len(parts) < 2 || len(s.compoundPatterns) == 0 {
 		return false
@@ -499,11 +562,27 @@ func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
 		left := parts[i]
 		right := parts[i+1]
 		for _, rule := range s.compoundPatterns {
-			if rule.leftFlag != "" && !s.wordHasFlag(left, rule.leftFlag) {
-				continue
+			if rule.leftFlag != "" {
+				if rule.leftStemOnly {
+					if !s.wordHasFlag(left, rule.leftFlag) {
+						continue
+					}
+				} else {
+					if !s.wordOrRootHasFlag(left, rule.leftFlag) {
+						continue
+					}
+				}
 			}
-			if rule.rightFlag != "" && !s.wordHasFlag(right, rule.rightFlag) {
-				continue
+			if rule.rightFlag != "" {
+				if rule.rightStemOnly {
+					if !s.wordHasFlag(right, rule.rightFlag) {
+						continue
+					}
+				} else {
+					if !s.wordOrRootHasFlag(right, rule.rightFlag) {
+						continue
+					}
+				}
 			}
 			if rule.left != "" && !strings.HasSuffix(left, rule.left) {
 				continue
@@ -527,6 +606,127 @@ func (s *GoSpell) compoundSetContains(set map[string]struct{}, word string) bool
 	lower := strings.ToLower(word)
 	if lower != word {
 		if _, ok := set[lower]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// compoundBoundaryHasCase reports whether the left|right compound boundary
+// violates CHECKCOMPOUNDCASE.  The check fires only when both boundary
+// characters are letters; a non-letter (e.g. '-') resets the boundary so
+// hyphen-connected forms like "BAZ-foo" are not blocked.
+func compoundBoundaryHasCase(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	lastR, _ := utf8.DecodeLastRuneInString(left)
+	firstR, _ := utf8.DecodeRuneInString(right)
+	if !unicode.IsLetter(lastR) || !unicode.IsLetter(firstR) {
+		return false
+	}
+	return unicode.IsUpper(lastR) || unicode.IsUpper(firstR)
+}
+
+// compoundBoundaryHasTriple reports whether the left|right boundary creates a
+// run of three identical characters (CHECKCOMPOUNDTRIPLE).
+func compoundBoundaryHasTriple(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	leftR := []rune(left)
+	rightR := []rune(right)
+	last := leftR[len(leftR)-1]
+	first := rightR[0]
+	if last != first {
+		return false
+	}
+	if len(leftR) >= 2 && leftR[len(leftR)-2] == last {
+		return true
+	}
+	if len(rightR) >= 2 && rightR[1] == first {
+		return true
+	}
+	return false
+}
+
+// repBlocksCompoundParts is called with the parts list found by spellCompoundParts
+// and applies CHECKCOMPOUNDREP on each adjacent pair concatenation.
+func (s *GoSpell) repBlocksCompoundParts(parts []string) bool {
+	if len(s.repReplacements) == 0 || len(parts) < 2 {
+		return false
+	}
+	for i := 0; i+1 < len(parts); i++ {
+		pair := parts[i] + parts[i+1]
+		if s.repMatchesDict(pair) {
+			return true
+		}
+	}
+	return false
+}
+
+// repMatchesDict applies all REP rules at every rune position in word and
+// returns true if any result is a standalone dictionary word.
+func (s *GoSpell) repMatchesDict(word string) bool {
+	runes := []rune(word)
+	for _, rep := range s.repReplacements {
+		from := []rune(rep[0])
+		to := []rune(rep[1])
+		fromLen := len(from)
+		if fromLen == 0 {
+			continue
+		}
+		for i := 0; i <= len(runes)-fromLen; i++ {
+			match := true
+			for j, r := range from {
+				if runes[i+j] != r {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			result := make([]rune, 0, len(runes)-fromLen+len(to))
+			result = append(result, runes[:i]...)
+			result = append(result, to...)
+			result = append(result, runes[i+fromLen:]...)
+			if s.isStandaloneWord(string(result)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isStandaloneWord checks whether word is in the dictionary as a standalone
+// (non-compound) entry, without recursing into compound checking.
+func (s *GoSpell) isStandaloneWord(word string) bool {
+	if ok, found := s.surfaceAllowsStandalone(word); found {
+		return ok
+	}
+	_, ok := s.dict[word]
+	return ok
+}
+
+// spellSimplifiedTriple accepts a word that is the simplified form of a
+// CHECKCOMPOUNDTRIPLE-blocked compound (SIMPLIFIEDTRIPLE).  It tries inserting
+// one copy of each character at every position and checks whether the extended
+// form is a valid compound that would otherwise be blocked by the triple rule.
+func (s *GoSpell) spellSimplifiedTriple(word string) bool {
+	if !s.checkCompoundTriple {
+		return false
+	}
+	runes := []rune(word)
+	s.checkCompoundTriple = false
+	defer func() { s.checkCompoundTriple = true }()
+	for i := 1; i <= len(runes); i++ {
+		c := runes[i-1]
+		extended := make([]rune, len(runes)+1)
+		copy(extended[:i], runes[:i])
+		extended[i] = c
+		copy(extended[i+1:], runes[i:])
+		if s.spellCompound(string(extended)) {
 			return true
 		}
 	}
@@ -762,10 +962,17 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		compoundMiddleFlag: affix.CompoundMiddleFlag,
 		compoundEndFlag:    affix.CompoundEndFlag,
 		compoundOnlyFlag:   affix.CompoundOnly,
-		compoundPatterns:   affix.checkCompoundPatterns,
-		compoundMin:        affix.CompoundMin,
-		flagMode:           affix.flagMode,
-		compounds:          make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		compoundPatterns:    affix.checkCompoundPatterns,
+		compoundMin:         affix.CompoundMin,
+		flagMode:            affix.flagMode,
+		compounds:           make([]*regexp.Regexp, 0, len(affix.CompoundRule)),
+		checkCompoundCase:   affix.CheckCompoundCase,
+		checkCompoundDup:    affix.CheckCompoundDup,
+		checkCompoundTriple: affix.CheckCompoundTriple,
+		simplifiedTriple:    affix.SimplifiedTriple,
+		checkCompoundRep:    affix.CheckCompoundRep,
+		repReplacements:     affix.Replacements,
+		breakEnabled:        affix.BreakEnabled,
 	}
 
 	words := []expandedWord{}
@@ -789,6 +996,19 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			base = base[:idx]
 		}
 		base = strings.TrimSpace(base)
+		// wordFlags stores the root dic-entry flags for the base word.
+		// expandStateRecords merges same-spelling records (OR-ing state), so we
+		// cannot rely on rec.state==0 to identify the root entry.  Instead, store
+		// rawFlags (the DIC line's flags) directly for the base word.  Derived
+		// forms (SFX/PFX) get their own surface entries and never appear as base.
+		if base != "" && len(rawFlags) > 0 {
+			if gs.wordFlags[base] == nil {
+				gs.wordFlags[base] = make(map[string]struct{}, len(rawFlags))
+			}
+			for _, flag := range rawFlags {
+				gs.wordFlags[base][flag] = struct{}{}
+			}
+		}
 		seen := make(map[string]struct{}, len(words))
 		for _, rec := range words {
 			word := rec.word
@@ -799,18 +1019,6 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			insertWord(gs.dict, word)
 			gs.surfaces[word] = append(gs.surfaces[word], buildSurfaceEntry(word, rawFlags, affix, rec))
 			gs.wordEntryCount[word]++
-			// wordFlags tracks only root dic-entry flags (state==0). Derived
-			// forms (SFX/PFX generated) carry their own affix output flags and
-			// must not inherit the parent's flags — that would cause
-			// CHECKCOMPOUNDPATTERN flag checks to fire on the wrong forms.
-			if rec.state == 0 && len(rawFlags) > 0 {
-				if gs.wordFlags[word] == nil {
-					gs.wordFlags[word] = make(map[string]struct{}, len(rawFlags))
-				}
-				for _, flag := range rawFlags {
-					gs.wordFlags[word][flag] = struct{}{}
-				}
-			}
 			if strings.ContainsRune(word, ' ') {
 				if gs.blockedCompound == nil {
 					gs.blockedCompound = make(map[string]struct{})

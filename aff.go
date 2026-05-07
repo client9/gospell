@@ -53,11 +53,13 @@ type compoundMask uint8
 type affixState uint8
 
 type compoundPatternRule struct {
-	left      string
-	right     string
-	leftFlag  string
-	rightFlag string
-	mod       string
+	left          string
+	right         string
+	leftFlag      string
+	rightFlag     string
+	mod           string
+	leftStemOnly  bool // true when parsed from "0/flag" — only match root dic entries
+	rightStemOnly bool
 }
 
 const (
@@ -145,8 +147,14 @@ type dictConfig struct {
 	CompoundFlag       string
 	CompoundPermitFlag string
 	CompoundForbidFlag string
-	IconvReplacements  []string
-	Replacements       [][2]string
+	IconvReplacements    []string
+	Replacements         [][2]string
+	CheckCompoundCase    bool
+	CheckCompoundDup     bool
+	CheckCompoundTriple  bool
+	SimplifiedTriple     bool
+	CheckCompoundRep     bool
+	BreakEnabled         bool // false only when BREAK 0 is set
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
 	AffixMap               map[string]*affix
@@ -443,15 +451,20 @@ func (a *dictConfig) splitFlags(flags string) ([]string, error) {
 	}
 }
 
-func splitPatternFlag(token string) (string, string) {
-	pattern, flag, found := strings.Cut(token, "/")
+// splitPatternFlag parses an endchars[/flag] or beginchars[/flag] token from a
+// CHECKCOMPOUNDPATTERN directive.  The special endchars value "0" means
+// stem-only: the rule fires only on unmodified root dic entries.
+func splitPatternFlag(token string) (pattern, flag string, stemOnly bool) {
+	var found bool
+	pattern, flag, found = strings.Cut(token, "/")
 	if !found {
-		return token, ""
+		return token, "", false
 	}
 	if pattern == "0" {
 		pattern = ""
+		stemOnly = true
 	}
-	return pattern, flag
+	return pattern, flag, stemOnly
 }
 
 func flagContains(flags, want string, mode flagMode) bool {
@@ -577,6 +590,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 		compoundOnlyWords:      make(map[string]struct{}),
 		forceUcaseWords:        make(map[string]struct{}),
 		CompoundMin:            3,
+		BreakEnabled:           true,
 	}
 	// Many affix rules share the same condition pattern (e.g. ".", "e",
 	// "[^aeiou]y"). Cache parsed matchers so each unique (pattern, type) pair
@@ -699,8 +713,8 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("CHECKCOMPOUNDPATTERN stanza had %d fields, expected at least 2", len(parts))
 			}
 			rule := compoundPatternRule{}
-			rule.left, rule.leftFlag = splitPatternFlag(parts[1])
-			rule.right, rule.rightFlag = splitPatternFlag(parts[2])
+			rule.left, rule.leftFlag, rule.leftStemOnly = splitPatternFlag(parts[1])
+			rule.right, rule.rightFlag, rule.rightStemOnly = splitPatternFlag(parts[2])
 			if len(parts) > 3 {
 				rule.mod = parts[3]
 			}
@@ -783,6 +797,25 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			default:
 				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
 			}
+		case "CHECKCOMPOUNDCASE":
+			aff.CheckCompoundCase = true
+		case "CHECKCOMPOUNDDUP":
+			aff.CheckCompoundDup = true
+		case "CHECKCOMPOUNDTRIPLE":
+			aff.CheckCompoundTriple = true
+		case "SIMPLIFIEDTRIPLE":
+			aff.SimplifiedTriple = true
+		case "CHECKCOMPOUNDREP":
+			aff.CheckCompoundRep = true
+		case "BREAK":
+			// BREAK 0 disables the default hyphen-splitting behavior.
+			if len(parts) == 2 && parts[1] == "0" {
+				aff.BreakEnabled = false
+			}
+			// Other BREAK patterns are accepted but not stored; we only
+			// implement the default "-" split.
+		case "NOSPLITSUGS":
+			// suggestion-only option; no effect on spell checking
 		case "MAXNGRAMSUGS":
 			// not supported
 		default:

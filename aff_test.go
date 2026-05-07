@@ -1268,3 +1268,291 @@ func TestCheckCompoundPatternSandhiTelugu(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tier 1: CHECKCOMPOUNDCASE
+// ---------------------------------------------------------------------------
+
+func TestCheckCompoundCase(t *testing.T) {
+	sampleAff := `CHECKCOMPOUNDCASE
+COMPOUNDFLAG A
+`
+	sampleDic := `4
+foo/A
+Bar/A
+BAZ/A
+-/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		// GOOD: no uppercase at letter-to-letter boundaries
+		{"Barfoo", true},
+		{"foo-Bar", true},
+		{"foo-BAZ", true},
+		{"BAZ-foo", true},
+		{"BAZ-Bar", true},
+		// WRONG: uppercase letter at a letter-to-letter boundary
+		{"fooBar", false},
+		{"BAZBar", false},
+		{"BAZfoo", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CHECKCOMPOUNDCASE %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCheckCompoundCaseUTF(t *testing.T) {
+	sampleAff := `SET UTF-8
+CHECKCOMPOUNDCASE
+COMPOUNDFLAG A
+`
+	sampleDic := `2
+áoó/A
+Óoá/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"áoóáoó", true},
+		{"Óoááoó", true},
+		{"áoóÓoá", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CHECKCOMPOUNDCASE UTF %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tier 1: CHECKCOMPOUNDDUP
+// ---------------------------------------------------------------------------
+
+func TestCheckCompoundDup(t *testing.T) {
+	sampleAff := `CHECKCOMPOUNDDUP
+COMPOUNDFLAG A
+`
+	sampleDic := `2
+foo/A
+bar/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		// GOOD: no adjacent identical parts
+		{"barfoo", true},
+		{"foobar", true},
+		{"foofoobar", true},
+		{"foobarfoo", true},
+		{"barfoobarfoo", true},
+		// WRONG: adjacent identical parts
+		{"foofoo", false},
+		{"foofoofoo", false},
+		{"foobarbar", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CHECKCOMPOUNDDUP %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tier 1: CHECKCOMPOUNDTRIPLE + SIMPLIFIEDTRIPLE
+// ---------------------------------------------------------------------------
+
+func TestCheckCompoundTriple(t *testing.T) {
+	sampleAff := `CHECKCOMPOUNDTRIPLE
+COMPOUNDFLAG A
+`
+	sampleDic := `4
+foo/A
+opera/A
+eel/A
+bare/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		// GOOD: no triple letter at boundary
+		{"operafoo", true},
+		{"operaeel", true},
+		{"operabare", true},
+		{"eelbare", true},
+		{"eelfoo", true},
+		{"eelopera", true},
+		// WRONG: triple letters at compound boundary
+		{"fooopera", false},
+		{"bareeel", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CHECKCOMPOUNDTRIPLE %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestSimplifiedTriple(t *testing.T) {
+	sampleAff := `CHECKCOMPOUNDTRIPLE
+SIMPLIFIEDTRIPLE
+COMPOUNDMIN 2
+COMPOUNDFLAG A
+`
+	sampleDic := `2
+glass/A
+sko/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"glass", true},
+		{"sko", true},
+		// simplified form (glasssko → glassko by dropping one 's')
+		{"glassko", true},
+		// raw triple form is still wrong
+		{"glasssko", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("SIMPLIFIEDTRIPLE %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2: CHECKCOMPOUNDREP
+// ---------------------------------------------------------------------------
+
+func TestCheckCompoundRep(t *testing.T) {
+	// UTF-8 regression case: fa+ajtó should not be rejected because
+	// the ó→o replacement applied at position 2 transforms "fa" into "fo"
+	// which was incorrectly combined with "ajtó" to produce "fojtó".
+	sampleAff := `SET UTF-8
+COMPOUNDMIN 2
+COMPOUNDFLAG x
+CHECKCOMPOUNDREP
+
+REP 1
+REP ó o
+`
+	sampleDic := `3
+fa/x
+ajtó/x
+fojtó
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"fa", true},
+		{"ajtó", true},
+		{"ajtófa", true},
+		{"faajtó", true},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CHECKCOMPOUNDREP %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tier 3: COMPOUNDMIDDLE + CHECKCOMPOUNDPATTERN flag checks for derived forms
+// ---------------------------------------------------------------------------
+
+func TestCompoundMiddleFlag(t *testing.T) {
+	// A simple 3-part compound: only the middle part is allowed in the middle.
+	sampleAff := `SET UTF-8
+COMPOUNDBEGIN B
+COMPOUNDMIDDLE M
+COMPOUNDEND E
+`
+	sampleDic := `3
+start/B
+mid/M
+end/E
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"startmidend", true},
+		{"startend", true},    // 2-part compound: start+end is valid without a middle
+		{"midstartend", false}, // wrong order: mid cannot be start
+		{"startstartend", false}, // start has no M flag, cannot be in middle position
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("COMPOUNDMIDDLE %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCheckCompoundPatternDerivedFlags(t *testing.T) {
+	// CHECKCOMPOUNDPATTERN /Ch /Xs should block schoonheids+port
+	// even though schoonheids is derived (SFX Ch) and does not carry Ch
+	// as one of its own output flags.
+	sampleAff := `FLAG long
+COMPOUNDBEGIN Ca
+COMPOUNDMIDDLE Cb
+COMPOUNDEND Cc
+COMPOUNDPERMITFLAG Cp
+ONLYINCOMPOUND Cx
+
+CHECKCOMPOUNDPATTERN 1
+CHECKCOMPOUNDPATTERN /Ch /Xs
+
+SFX Ch Y 2
+SFX Ch 0 s/CaCbCxCp .
+SFX Ch 0 s-/CaCbCcCp .
+`
+	sampleDic := `3
+schoonheid/Ch
+port/CcXs
+sport/Cc
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"schoonheidssport", true},
+		{"schoonheidsport", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("opentaal_cpdpat %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
