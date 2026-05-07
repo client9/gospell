@@ -98,6 +98,7 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	s.surfaces[word] = append(s.surfaces[word], surfaceEntry{
 		Word:              word,
 		StandaloneAllowed: true,
+		IsRoot:            true,
 	})
 	if strings.ContainsRune(word, ' ') {
 		if s.blockedCompound == nil {
@@ -157,38 +158,6 @@ func (s *GoSpell) Suggest(word string, limit int) ([]Suggestion, error) {
 		return nil, fmt.Errorf("no suggester configured")
 	}
 	return s.suggester.Suggest(word, limit)
-}
-
-// AddWordListFile reads a word list file, one word per line.
-func (s *GoSpell) AddWordListFile(name string) ([]string, error) {
-	fd, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = fd.Close() }()
-	return s.AddWordList(fd)
-}
-
-// AddWordList adds words from a reader, one word per line (UTF-8).
-// Returns a list of duplicate words and any read error.
-func (s *GoSpell) AddWordList(r io.Reader) ([]string, error) {
-	var duplicates []string
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if len(line) == 0 || line == "#" {
-			continue
-		}
-		for _, word := range caseVariations(line, caseStyle(line)) {
-			if !s.AddWordRaw(word) {
-				duplicates = append(duplicates, word)
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return duplicates, err
-	}
-	return duplicates, nil
 }
 
 // isWordForbidden returns true when the word is blocked by FORBIDDENWORD.

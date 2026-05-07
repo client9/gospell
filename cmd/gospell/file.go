@@ -15,7 +15,7 @@ type Diff struct {
 }
 
 // SpellFile spell-checks raw bytes treated as plain text.
-func SpellFile(gs *gospell.GoSpell, raw []byte) []Diff {
+func SpellFile(gs *gospell.Checker, raw []byte) []Diff {
 	out := []Diff{}
 
 	rawstring := gs.InputConversion(raw)

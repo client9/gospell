@@ -91,18 +91,13 @@ func main() {
 		return
 	}
 
+	checker := gospell.NewChecker(h)
 	if *personalDict != "" {
-		raw, err := os.ReadFile(*personalDict)
+		wl, err := gospell.NewWordListFile(*personalDict)
 		if err != nil {
 			log.Fatalf("Unable to load personal dictionary %s: %s", *personalDict, err)
 		}
-		duplicates, err := h.AddWordList(bytes.NewReader(raw))
-		if err != nil {
-			log.Fatalf("Unable to process personal dictionary %s: %s", *personalDict, err)
-		}
-		for _, word := range duplicates {
-			log.Printf("Word %q in personal dictionary already exists in main dictionary", word)
-		}
+		checker.AddWordList(wl)
 	}
 
 	printDiffs := func(diffs []Diff) {
@@ -120,7 +115,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read stdin: %s", err)
 		}
-		out := SpellFile(h, raw)
+		out := SpellFile(checker, raw)
 		for i := range out {
 			out[i].Path = "stdin"
 		}
@@ -136,7 +131,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to read %q: %s", arg, err)
 		}
-		out := SpellFile(h, raw)
+		out := SpellFile(checker, raw)
 		for i := range out {
 			out[i].Path = arg
 		}

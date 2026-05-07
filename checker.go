@@ -1,0 +1,103 @@
+package gospell
+
+import (
+	"sort"
+
+	"github.com/agnivade/levenshtein"
+)
+
+// Checker combines a base GoSpell dictionary with zero or more WordLists.
+// WordLists are consulted before the base dictionary: the first forbidden match
+// rejects the word; the first allowed match accepts it; otherwise the base
+// dictionary decides.
+type Checker struct {
+	base  *GoSpell
+	lists []*WordList
+}
+
+// NewChecker creates a Checker backed by base.
+func NewChecker(base *GoSpell) *Checker {
+	return &Checker{base: base}
+}
+
+// InputConversion applies the base dictionary's ICONV rules to raw input.
+func (c *Checker) InputConversion(raw []byte) string {
+	return c.base.InputConversion(raw)
+}
+
+// AddWordList appends wl to the active word lists.
+func (c *Checker) AddWordList(wl *WordList) {
+	c.lists = append(c.lists, wl)
+}
+
+// RemoveWordList removes wl from the active word lists by pointer identity.
+func (c *Checker) RemoveWordList(wl *WordList) {
+	for i, l := range c.lists {
+		if l == wl {
+			c.lists = append(c.lists[:i], c.lists[i+1:]...)
+			return
+		}
+	}
+}
+
+// Spell reports whether word is correctly spelled.
+func (c *Checker) Spell(word string) bool {
+	for _, wl := range c.lists {
+		if wl.IsForbidden(word) {
+			return false
+		}
+	}
+	for _, wl := range c.lists {
+		if wl.HasWord(word) {
+			return true
+		}
+	}
+	return c.base.Spell(word)
+}
+
+// Suggest returns spelling suggestions. The base dictionary suggester provides
+// the primary results; active WordLists are scanned with brute-force edit
+// distance and merged into the final set.
+//
+// Known limitation: words in active WordLists are not indexed by the base
+// suggester. Only the brute-force scan covers them, which is fast given
+// typical WordList sizes.
+func (c *Checker) Suggest(word string, limit int) ([]Suggestion, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	results, err := c.base.Suggest(word, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(results))
+	for _, s := range results {
+		seen[s.Word] = struct{}{}
+	}
+
+	for _, wl := range c.lists {
+		for w := range wl.allowed {
+			if w == word {
+				continue
+			}
+			if _, ok := seen[w]; ok {
+				continue
+			}
+			seen[w] = struct{}{}
+			dist := levenshtein.ComputeDistance(word, w)
+			results = append(results, Suggestion{Word: w, Score: dist})
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score < results[j].Score
+		}
+		return results[i].Word < results[j].Word
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
