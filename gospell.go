@@ -23,22 +23,22 @@ type iconvRule struct {
 
 // GoSpell is main struct
 type GoSpell struct {
-	dict               map[string]struct{}
-	surfaces           map[string][]surfaceEntry
-	wordFlags          map[string]map[string]struct{}
-	wordEntryCount     map[string]int
-	onlyCompoundCount  map[string]int
-	compoundOnlyRoot   map[string]struct{}
-	compoundOnly       map[string]struct{}
-	compoundBegin      map[string]struct{}
-	compoundMiddle     map[string]struct{}
-	compoundEnd        map[string]struct{}
-	compoundForbidden  map[string]struct{}
-	forceUcaseWords    map[string]struct{}
-	compoundBeginFlag  string
-	compoundMiddleFlag string
-	compoundEndFlag    string
-	compoundOnlyFlag   string
+	dict                map[string]struct{}
+	surfaces            map[string][]surfaceEntry
+	wordFlags           map[string]map[string]struct{}
+	wordEntryCount      map[string]int
+	onlyCompoundCount   map[string]int
+	compoundOnlyRoot    map[string]struct{}
+	compoundOnly        map[string]struct{}
+	compoundBegin       map[string]struct{}
+	compoundMiddle      map[string]struct{}
+	compoundEnd         map[string]struct{}
+	compoundForbidden   map[string]struct{}
+	forceUcaseWords     map[string]struct{}
+	compoundBeginFlag   string
+	compoundMiddleFlag  string
+	compoundEndFlag     string
+	compoundOnlyFlag    string
 	compoundPatterns    []compoundPatternRule
 	blockedCompound     map[string]struct{}
 	compoundMin         int
@@ -859,7 +859,7 @@ func hasFlagToken(flags []string, want string) bool {
 func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec expandedWord) surfaceEntry {
 	entry := surfaceEntry{
 		Word:              word,
-		StandaloneAllowed: true,
+		StandaloneAllowed: !rec.needsAffix,
 		RawFlags:          append([]string(nil), rawFlags...),
 	}
 	if affix == nil {
@@ -947,21 +947,21 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	}
 
 	gs := GoSpell{
-		dict:               make(map[string]struct{}),
-		surfaces:           make(map[string][]surfaceEntry),
-		wordFlags:          make(map[string]map[string]struct{}),
-		wordEntryCount:     make(map[string]int),
-		onlyCompoundCount:  make(map[string]int),
-		compoundOnlyRoot:   make(map[string]struct{}),
-		compoundOnly:       affix.compoundOnlyWords,
-		compoundBegin:      affix.compoundBeginWords,
-		compoundMiddle:     affix.compoundMiddleWords,
-		compoundEnd:        affix.compoundEndWords,
-		forceUcaseWords:    affix.forceUcaseWords,
-		compoundBeginFlag:  affix.CompoundBeginFlag,
-		compoundMiddleFlag: affix.CompoundMiddleFlag,
-		compoundEndFlag:    affix.CompoundEndFlag,
-		compoundOnlyFlag:   affix.CompoundOnly,
+		dict:                make(map[string]struct{}),
+		surfaces:            make(map[string][]surfaceEntry),
+		wordFlags:           make(map[string]map[string]struct{}),
+		wordEntryCount:      make(map[string]int),
+		onlyCompoundCount:   make(map[string]int),
+		compoundOnlyRoot:    make(map[string]struct{}),
+		compoundOnly:        affix.compoundOnlyWords,
+		compoundBegin:       affix.compoundBeginWords,
+		compoundMiddle:      affix.compoundMiddleWords,
+		compoundEnd:         affix.compoundEndWords,
+		forceUcaseWords:     affix.forceUcaseWords,
+		compoundBeginFlag:   affix.CompoundBeginFlag,
+		compoundMiddleFlag:  affix.CompoundMiddleFlag,
+		compoundEndFlag:     affix.CompoundEndFlag,
+		compoundOnlyFlag:    affix.CompoundOnly,
 		compoundPatterns:    affix.checkCompoundPatterns,
 		compoundMin:         affix.CompoundMin,
 		flagMode:            affix.flagMode,

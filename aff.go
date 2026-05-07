@@ -33,10 +33,11 @@ type affix struct {
 }
 
 type compoundRules struct {
-	Flag   string
-	Permit string
-	Forbid string
-	Only   string
+	Flag      string
+	Permit    string
+	Forbid    string
+	Only      string
+	NeedAffix string
 }
 
 type expandedWord struct {
@@ -46,6 +47,7 @@ type expandedWord struct {
 	state        affixState
 	forbid       bool
 	compoundOnly bool
+	needsAffix   bool // true if this form has an unresolved NEEDAFFIX
 }
 
 type compoundMask uint8
@@ -73,7 +75,7 @@ const (
 	stateSuffix
 )
 
-func (a affix) expand(word, flags string, state affixState, c compoundRules, mode flagMode, out []expandedWord) []expandedWord {
+func (a affix) expand(word, flags string, state affixState, c compoundRules, mode flagMode, incomingNeedsAffix bool, out []expandedWord) []expandedWord {
 	for _, r := range a.Rules {
 		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
@@ -102,13 +104,30 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		if outState == statePrefix|stateSuffix && !flagContains(r.OutFlags, c.Flag, mode) && !flagContains(r.OutFlags, c.Permit, mode) {
 			mask = 0
 		}
+		// Compute NEEDAFFIX status for the generated form.
+		//   Suffix: determined solely by whether this rule's output has the flag.
+		//   Prefix applied after a suffix: X only persists if BOTH this rule
+		//     and the incoming suffix form have X (each needs the other type).
+		//   Prefix applied to root (no prior suffix): X persists if this rule has it.
+		ruleHasX := c.NeedAffix != "" && flagContains(r.OutFlags, c.NeedAffix, mode)
+		var needsAffix bool
+		if a.Type == suffix {
+			needsAffix = ruleHasX
+		} else { // prefix
+			if state&stateSuffix != 0 {
+				needsAffix = ruleHasX && incomingNeedsAffix
+			} else {
+				needsAffix = ruleHasX
+			}
+		}
 		if a.Type == prefix {
 			out = append(out, expandedWord{
-				word:   r.AffixText + word,
-				flags:  appendFlags(flags, r.OutFlags, mode),
-				mask:   mask,
-				state:  outState,
-				forbid: forbid,
+				word:       r.AffixText + word,
+				flags:      appendFlags(flags, r.OutFlags, mode),
+				mask:       mask,
+				state:      outState,
+				forbid:     forbid,
+				needsAffix: needsAffix,
 			})
 		} else {
 			stripWord := word
@@ -116,11 +135,12 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 				stripWord = word[:len(word)-len(r.Strip)]
 			}
 			out = append(out, expandedWord{
-				word:   stripWord + r.AffixText,
-				flags:  appendFlags(flags, r.OutFlags, mode),
-				mask:   mask,
-				state:  outState,
-				forbid: forbid,
+				word:       stripWord + r.AffixText,
+				flags:      appendFlags(flags, r.OutFlags, mode),
+				mask:       mask,
+				state:      outState,
+				forbid:     forbid,
+				needsAffix: needsAffix,
 			})
 		}
 	}
@@ -135,26 +155,27 @@ type rule struct {
 }
 
 type dictConfig struct {
-	Flag               string
-	flagMode           flagMode
-	TryChars           string
-	WordChars          string
-	NoSuggestFlag      string
-	ForceUcaseFlag     string
-	CompoundBeginFlag  string
-	CompoundMiddleFlag string
-	CompoundEndFlag    string
-	CompoundFlag       string
-	CompoundPermitFlag string
-	CompoundForbidFlag string
-	IconvReplacements    []string
-	Replacements         [][2]string
-	CheckCompoundCase    bool
-	CheckCompoundDup     bool
-	CheckCompoundTriple  bool
-	SimplifiedTriple     bool
-	CheckCompoundRep     bool
-	BreakEnabled         bool // false only when BREAK 0 is set
+	Flag                string
+	flagMode            flagMode
+	TryChars            string
+	WordChars           string
+	NoSuggestFlag       string
+	NeedAffixFlag       string
+	ForceUcaseFlag      string
+	CompoundBeginFlag   string
+	CompoundMiddleFlag  string
+	CompoundEndFlag     string
+	CompoundFlag        string
+	CompoundPermitFlag  string
+	CompoundForbidFlag  string
+	IconvReplacements   []string
+	Replacements        [][2]string
+	CheckCompoundCase   bool
+	CheckCompoundDup    bool
+	CheckCompoundTriple bool
+	SimplifiedTriple    bool
+	CheckCompoundRep    bool
+	BreakEnabled        bool // false only when BREAK 0 is set
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
 	AffixMap               map[string]*affix
@@ -216,16 +237,18 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 			rootForbid = true
 		}
 	}
+	// The root dic entry is a virtual stem if it carries the NEEDAFFIX flag.
+	rootNeedsAffix := a.NeedAffixFlag != "" && flagContains(a.normalizeFlags(keyString), a.NeedAffixFlag, a.flagMode)
 	added := make(map[string]int)
 	seen := make(map[string]struct{})
 	var out []expandedWord
-	if err := a.expandStateRecords(word, keyString, rootOnly, rootMask, 0, rootForbid, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
+	if err := a.expandStateRecords(word, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
+func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
 	flags = a.normalizeFlags(flags)
 	keys, err := a.splitFlags(flags)
 	if err != nil {
@@ -261,6 +284,7 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 			state:        currentState,
 			forbid:       explicitForbid,
 			compoundOnly: compoundOnly,
+			needsAffix:   needsAffix,
 		})
 	} else {
 		rec := &(*out)[idx]
@@ -268,7 +292,10 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 		rec.state |= currentState
 		rec.forbid = rec.forbid || explicitForbid
 		rec.compoundOnly = rec.compoundOnly || compoundOnly
+		// false wins: if any path reaches this form without needsAffix, it is valid
+		rec.needsAffix = rec.needsAffix && needsAffix
 	}
+	c := compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag, a.CompoundOnly, a.NeedAffixFlag}
 	applyKeys := func(keys []string, wantType affixType) error {
 		for _, key := range keys {
 			if a.isCompoundOnlyFlag(key) || a.isCompoundRuleFlag(key) {
@@ -295,7 +322,7 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 				continue
 			}
 			var expanded []expandedWord
-			expanded = af.expand(word, flags, currentState, compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag, a.CompoundOnly}, a.flagMode, expanded[:0])
+			expanded = af.expand(word, flags, currentState, c, a.flagMode, needsAffix, expanded[:0])
 			nextUsed := make(map[string]struct{}, len(used)+1)
 			for k := range used {
 				nextUsed[k] = struct{}{}
@@ -304,7 +331,7 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 			for _, ew := range expanded {
 				nextOnly := compoundOnly
 				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
-				if err := a.expandStateRecords(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
+				if err := a.expandStateRecords(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
 					return err
 				}
 			}
@@ -814,6 +841,11 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			}
 			// Other BREAK patterns are accepted but not stored; we only
 			// implement the default "-" split.
+		case "NEEDAFFIX", "PSEUDOROOT":
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("NEEDAFFIX stanza had %d fields, expected 2", len(parts))
+			}
+			aff.NeedAffixFlag = parts[1]
 		case "NOSPLITSUGS":
 			// suggestion-only option; no effect on spell checking
 		case "MAXNGRAMSUGS":

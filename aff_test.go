@@ -76,7 +76,7 @@ COMPOUNDMIN 2
 		t.Fatalf("A Affix should be a cross product")
 	}
 
-	variations := a.expand("define", "", 0, compoundRules{}, flagASCII, nil)
+	variations := a.expand("define", "", 0, compoundRules{}, flagASCII, false, nil)
 	if len(variations) != 1 {
 		t.Fatalf("Expected 1 variation got %d", len(variations))
 	}
@@ -94,7 +94,7 @@ COMPOUNDMIN 2
 	if len(a.Rules) != 4 {
 		t.Fatalf("Affix should have 4 rules, got %d", len(a.Rules))
 	}
-	variations = a.expand("accept", "", 0, compoundRules{}, flagASCII, nil)
+	variations = a.expand("accept", "", 0, compoundRules{}, flagASCII, false, nil)
 	if len(variations) != 1 {
 		t.Fatalf("D Affix should have %d rules, got %d", 1, len(variations))
 	}
@@ -1507,8 +1507,8 @@ end/E
 		want bool
 	}{
 		{"startmidend", true},
-		{"startend", true},    // 2-part compound: start+end is valid without a middle
-		{"midstartend", false}, // wrong order: mid cannot be start
+		{"startend", true},       // 2-part compound: start+end is valid without a middle
+		{"midstartend", false},   // wrong order: mid cannot be start
 		{"startstartend", false}, // start has no M flag, cannot be in middle position
 	} {
 		if got := gs.Spell(tt.word); got != tt.want {
@@ -1553,6 +1553,167 @@ sport/Cc
 	} {
 		if got := gs.Spell(tt.word); got != tt.want {
 			t.Errorf("opentaal_cpdpat %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NEEDAFFIX
+// ---------------------------------------------------------------------------
+
+func TestNeedAffixBasic(t *testing.T) {
+	// needaffix.* fixture: foo/YXA means "foo" needs an affix (X flag).
+	// "foos" (via SFX A output, no X) is valid. Compound "barfoos" is valid.
+	sampleAff := `NEEDAFFIX X
+COMPOUNDFLAG Y
+
+SFX A Y 1
+SFX A 0 s/Y .
+`
+	sampleDic := "2\nfoo/YXA\nbar/Y"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"bar", true},
+		{"foos", true},
+		{"barfoos", true},
+		{"foo", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("NeedAffixBasic %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestNeedAffixHomonym(t *testing.T) {
+	// needaffix2.* fixture: "foo" appears three times; "foo/Y" (no X) makes
+	// "foo" a valid standalone word despite another entry carrying X.
+	sampleAff := `NEEDAFFIX X
+COMPOUNDFLAG Y`
+	sampleDic := "4\nfoo\nfoo/YX\nfoo/Y\nbar/Y"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"bar", true},
+		{"foobar", true},
+		{"barfoo", true},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("NeedAffixHomonym %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestNeedAffixOnAffix(t *testing.T) {
+	// needaffix3.* fixture: X on an affix output makes the derived form
+	// a virtual stem. "foos" (X on SFX A output) is wrong; "foosbaz"
+	// (SFX B applied on top) clears the X and is valid.
+	sampleAff := `NEEDAFFIX X
+
+SFX A Y 1
+SFX A 0 s/XB .
+
+SFX B Y 1
+SFX B 0 baz .
+`
+	sampleDic := "1\nfoo/A"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"foosbaz", true},
+		{"foos", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("NeedAffixOnAffix %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestNeedAffixHomonym4(t *testing.T) {
+	// needaffix4.* fixture: three foo entries with different flag combos;
+	// "foo/Y" (no X) provides a valid standalone form.
+	sampleAff := `NEEDAFFIX X
+COMPOUNDFLAG Y`
+	sampleDic := "4\nfoo/X\nfoo/Y\nfoo/YX\nbar/Y"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"bar", true},
+		{"foobar", true},
+		{"barfoo", true},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("NeedAffixHomonym4 %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestNeedAffixPrefixSuffix(t *testing.T) {
+	// needaffix5.* fixture: X on prefix output requires a suffix; X on
+	// suffix output requires a prefix (without X). Both X clears only when
+	// a further affix (without X) resolves it.
+	sampleAff := `NEEDAFFIX X
+
+SFX A Y 2
+SFX A 0 suf/B .
+SFX A 0 pseudosuf/XB .
+
+SFX B Y 1
+SFX B 0 bar .
+
+PFX C Y 2
+PFX C 0 pre .
+PFX C 0 pseudopre/X .
+`
+	sampleDic := "1\nfoo/AC"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true},
+		{"prefoo", true},
+		{"foosuf", true},
+		{"prefoosuf", true},
+		{"foosufbar", true},
+		{"prefoosufbar", true},
+		{"pseudoprefoosuf", true},
+		{"pseudoprefoosufbar", true},
+		{"pseudoprefoopseudosufbar", true},
+		{"prefoopseudosuf", true},
+		{"prefoopseudosufbar", true},
+		{"pseudoprefoo", false},
+		{"foopseudosuf", false},
+		{"pseudoprefoopseudosuf", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("NeedAffixPrefixSuffix %q: got %v want %v", tt.word, got, tt.want)
 		}
 	}
 }
