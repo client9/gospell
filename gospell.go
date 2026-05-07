@@ -33,7 +33,6 @@ type GoSpell struct {
 	compoundBegin       map[string]struct{}
 	compoundMiddle      map[string]struct{}
 	compoundEnd         map[string]struct{}
-	compoundForbidden   map[string]struct{}
 	forceUcaseWords     map[string]struct{}
 	compoundBeginFlag   string
 	compoundMiddleFlag  string
@@ -884,10 +883,6 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	if rec.mask&compoundEnd != 0 || hasFlagToken(rawFlags, affix.CompoundEndFlag) {
 		entry.CompoundEndAllowed = true
 	}
-	if entry.CompoundForbidden {
-		// Keep the surface record for diagnostics, but let compound position
-		// checks decide using the positional metadata.
-	}
 	return entry
 }
 
@@ -975,7 +970,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		breakEnabled:        affix.BreakEnabled,
 	}
 
-	words := []expandedWord{}
+	var words []expandedWord
 	for scanner.Scan() {
 		line := scanner.Text()
 		rawFlags := compoundEntryFlags(line, affix)

@@ -195,16 +195,10 @@ type dictConfig struct {
 	compoundForbiddenWords map[string]struct{}
 	compoundOnlyWords      map[string]struct{}
 	forceUcaseWords        map[string]struct{}
-	// Scratch slices reused across expand calls to avoid per-entry allocations.
-	prefixScratch  []*affix
-	suffixScratch  []*affix
-	prewordScratch []expandedWord
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
 // inflected forms to out, returning the updated slice.
-// The pointer receiver lets us reuse prefixScratch/suffixScratch/prewordScratch
-// across calls without allocating on every .dic entry.
 func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	records, err := a.expandRecords(wordAffix)
 	if err != nil {
@@ -524,14 +518,6 @@ func flagContains(flags, want string, mode flagMode) bool {
 	default:
 		return strings.Contains(flags, want)
 	}
-}
-
-func singleRune(s string) (rune, bool) {
-	r := []rune(s)
-	if len(r) != 1 {
-		return 0, false
-	}
-	return r[0], true
 }
 
 func (a *dictConfig) isCompoundOnlyFlag(flag string) bool {
