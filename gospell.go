@@ -239,6 +239,9 @@ func (s *GoSpell) spellExact(word string) bool {
 	if s.spellCompound(word) {
 		return true
 	}
+	if s.spellSandhiCompound(word) {
+		return true
+	}
 	return false
 }
 
@@ -336,6 +339,68 @@ func (s *GoSpell) spellCompound(word string) bool {
 		return false
 	}
 	return true
+}
+
+// spellSandhiCompound checks whether word is the modified (sandhi) form of a
+// compound governed by a 3-argument CHECKCOMPOUNDPATTERN rule.
+//
+// Rule: CHECKCOMPOUNDPATTERN endchars[/leftFlag] beginchars[/rightFlag] mod
+//
+// The sandhi form is produced by replacing the junction:
+//
+//	left_base + mod + right_base
+//	  where left = left_base + endchars, right = beginchars + right_base
+//
+// We reverse-engineer this: find every occurrence of mod in word, reconstruct
+// the candidate left and right, verify flags and compound eligibility.
+func (s *GoSpell) spellSandhiCompound(word string) bool {
+	if len(s.compoundPatterns) == 0 {
+		return false
+	}
+	wholeStyle := caseStyle(word)
+	wordRunes := []rune(word)
+	for _, rule := range s.compoundPatterns {
+		if rule.mod == "" {
+			continue
+		}
+		modRunes := []rune(rule.mod)
+		leftEnd := []rune(rule.left)
+		rightStart := []rune(rule.right)
+		modLen := len(modRunes)
+		// Scan every position in word where mod could sit.
+		for i := 0; i <= len(wordRunes)-modLen; i++ {
+			// Check mod matches at position i.
+			match := true
+			for j, r := range modRunes {
+				if wordRunes[i+j] != r {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			// Reconstruct left = word[:i] + endchars, right = beginchars + word[i+modLen:]
+			leftRunes := append(append([]rune(nil), wordRunes[:i]...), leftEnd...)
+			rightRunes := append(append([]rune(nil), rightStart...), wordRunes[i+modLen:]...)
+			left := string(leftRunes)
+			right := string(rightRunes)
+			if compoundRuneLen(left) < s.compoundMin || compoundRuneLen(right) < s.compoundMin {
+				continue
+			}
+			// Verify flag constraints from the rule.
+			if rule.leftFlag != "" && !s.wordHasFlag(left, rule.leftFlag) {
+				continue
+			}
+			if rule.rightFlag != "" && !s.wordHasFlag(right, rule.rightFlag) {
+				continue
+			}
+			if s.compoundStartPart(left) && s.compoundFinalPart(right, wholeStyle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bool) ([]string, bool) {
@@ -444,9 +509,6 @@ func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
 				continue
 			}
 			if rule.right != "" && !strings.HasPrefix(right, rule.right) {
-				continue
-			}
-			if rule.mod != "" && (strings.HasSuffix(left, rule.mod) || strings.HasPrefix(right, rule.mod)) {
 				continue
 			}
 			return true

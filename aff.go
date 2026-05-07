@@ -799,6 +799,8 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 
 func detectSET(raw []byte) (string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	set := ""
+	flagUTF8 := false
 	firstLine := true
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -814,16 +816,24 @@ func detectSET(raw []byte) (string, error) {
 		if len(fields) == 0 {
 			continue
 		}
-		if fields[0] != "SET" {
-			continue
+		switch fields[0] {
+		case "SET":
+			if len(fields) != 2 {
+				return "", fmt.Errorf("SET stanza had %d fields, expected 2", len(fields))
+			}
+			set = fields[1]
+		case "FLAG":
+			if len(fields) == 2 && fields[1] == "UTF-8" {
+				flagUTF8 = true
+			}
 		}
-		if len(fields) != 2 {
-			return "", fmt.Errorf("SET stanza had %d fields, expected 2", len(fields))
-		}
-		return fields[1], nil
 	}
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
-	return "", nil
+	// FLAG UTF-8 implies the file itself is UTF-8 encoded when no SET is given.
+	if set == "" && flagUTF8 {
+		return "UTF-8", nil
+	}
+	return set, nil
 }

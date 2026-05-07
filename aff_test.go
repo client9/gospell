@@ -1183,3 +1183,88 @@ NANDA
 		}
 	}
 }
+
+// TestFlagUTF8ChainedSuffix: FLAG UTF-8 without SET should treat the file as
+// UTF-8. Multi-byte flag chars must survive and allow chained suffix expansion.
+func TestFlagUTF8ChainedSuffix(t *testing.T) {
+	sampleAff := "FLAG UTF-8\n\nSFX A Y 1\nSFX A 0 s/\xc3\x96\xc3\xbc\xc3\x9c .\n\nSFX \xc3\x96 Y 1\nSFX \xc3\x96 0 bar .\n\nSFX \xc3\xbc Y 1\nSFX \xc3\xbc 0 baz .\n\nPFX \xc3\x9c Y 1\nPFX \xc3\x9c 0 un .\n"
+	sampleDic := "1\nfoo/A\xc3\x9c\n"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"foo", true}, {"foos", true}, {"foosbar", true}, {"foosbaz", true},
+		{"unfoo", true}, {"unfoos", true}, {"unfoosbar", true}, {"unfoosbaz", true},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// TestCheckCompoundPatternSandhi: 3-argument CHECKCOMPOUNDPATTERN.
+// Sandhi rule "o b z": foo+bar → fozar; raw "foobar" blocked.
+func TestCheckCompoundPatternSandhi(t *testing.T) {
+	sampleAff := "SET UTF-8\nCOMPOUNDFLAG A\nCHECKCOMPOUNDPATTERN 2\nCHECKCOMPOUNDPATTERN o b z\nCHECKCOMPOUNDPATTERN oo ba u\nCOMPOUNDMIN 1\n"
+	sampleDic := "2\nfoo/A\nbar/A\n"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"barfoo", true}, {"fozar", true}, {"foobar", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// TestCheckCompoundPatternSandhiWithFlags: sandhi with per-word flag guards.
+func TestCheckCompoundPatternSandhiWithFlags(t *testing.T) {
+	sampleAff := "SET UTF-8\nCOMPOUNDFLAG A\nCHECKCOMPOUNDPATTERN 1\nCHECKCOMPOUNDPATTERN o/X b/Y z\nCOMPOUNDMIN 1\n"
+	sampleDic := "4\nfoo/A\nboo/AX\nbar/A\nban/AY\n"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"bozan", true}, {"barfoo", true}, {"foobar", true},
+		{"boobar", true}, {"booban", false}, {"foobanbar", true},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+// TestCheckCompoundPatternSandhiTelugu: sandhi with Unicode replacement.
+func TestCheckCompoundPatternSandhiTelugu(t *testing.T) {
+	sampleAff := "SET UTF-8\nCOMPOUNDFLAG x\nCOMPOUNDMIN 1\nCHECKCOMPOUNDPATTERN 2\nCHECKCOMPOUNDPATTERN a/A u/A O\nCHECKCOMPOUNDPATTERN u/B u/B u\n"
+	sampleDic := "4\nsUrya/Ax\nudayaM/Ax\npEru/Bx\nunna/Bx\n"
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"sUryOdayaM", true}, {"pErunna", true},
+		{"sUryaudayaM", false}, {"pEruunna", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
