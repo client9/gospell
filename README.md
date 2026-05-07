@@ -138,8 +138,23 @@ This makes it easy to experiment with:
 - query-time mutation generation
 - delete-index candidate generation
 - n-gram or trigram indexing
-- mutation-based candidate generation
 - chained or composite engines
+
+### Built-In Suggesters
+
+`gospell` currently ships with four reference suggestion engines:
+
+- `NewLevenshteinSuggester` - scans every dictionary word and ranks by edit distance
+- `NewMutationSuggester` - generates English/QWERTY one-edit candidates on demand
+- `NewSymSpellSuggester` - delete-index engine with expensive build and fast lookup
+- `NewTrigramSuggester` - trigram overlap filter followed by Levenshtein rerank
+
+Defaults:
+
+- `LevenshteinOptions{MaxDistance: 2}` when nonzero; `0` disables the cap
+- `MutationOptions{CandidateCap: 256}`
+- `SymSpellOptions{MaxDistance: 2, PrefixLength: 7}`
+- `TrigramOptions{RerankLimit: 32, MaxLengthDiff: 4}`
 
 ### Mutation-Based Suggestions
 
