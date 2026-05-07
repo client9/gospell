@@ -11,6 +11,7 @@ It is designed for:
 - loading Hunspell `.aff` and `.dic` files
 - exact word checking
 - word splitting and compound handling
+- per-document or per-session word list overlays
 - pluggable suggestion engines
 
 The package keeps the core checker small and lets you choose the suggestion strategy that fits your workload.
@@ -20,7 +21,8 @@ The package keeps the core checker small and lets you choose the suggestion stra
 - Pure Go implementation
 - Hunspell dictionary format support
 - Exact spell checking with affix and compound handling
-- Word list loading for custom dictionaries
+- `WordList` overlays — add allowed or forbidden words without touching the base dictionary
+- `Checker` — combines a base dictionary with any number of `WordList`s; supports per-document reset at zero cost
 - Pluggable suggestion engines
 - Built-in reference engines:
   - brute-force Levenshtein
@@ -111,16 +113,58 @@ This makes it easy to experiment with:
 - mutation-based candidate generation
 - chained or composite engines
 
+## Word Lists
+
+`WordList` is a lightweight overlay of allowed and forbidden words. It does not require rebuilding the base dictionary and can be attached or detached at any time.
+
+Format: one entry per line. Lines starting with `#` are comments. Lines starting with `*` forbid the word. All other non-blank lines allow the word.
+
+```
+# project-specific terms
+Kubernetes
+gRPC
+*irregardless
+```
+
+```go
+gs, err := gospell.NewGoSpell("en_US.aff", "en_US.dic")
+if err != nil {
+    log.Fatal(err)
+}
+
+checker := gospell.NewChecker(gs)
+
+// Load a global personal word list once.
+global, err := gospell.NewWordListFile("personal.txt")
+if err != nil {
+    log.Fatal(err)
+}
+checker.AddWordList(global)
+
+// Per-document: add, use, then remove.
+doc, _ := gospell.NewWordList(strings.NewReader("ProjectName\n*badterm\n"))
+checker.AddWordList(doc)
+
+fmt.Println(checker.Spell("ProjectName")) // true
+fmt.Println(checker.Spell("badterm"))     // false
+
+checker.RemoveWordList(doc) // reset for next document
+```
+
+`Checker.Suggest` merges base dictionary suggestions with a brute-force scan of all active `WordList`s, so per-document words appear in suggestions automatically.
+
 ## API Overview
 
 The main entry points are:
 
-- [`NewGoSpell`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpell)
-- [`NewGoSpellReader`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpellReader)
-- [`(*GoSpell).Spell`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Spell)
-- [`(*GoSpell).SetSuggester`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.SetSuggester)
-- [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
-- [`(*GoSpell).AddWordList`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.AddWordList)
+- [`NewGoSpell`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpell) / [`NewGoSpellReader`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpellReader) — load a base dictionary
+- [`NewChecker`](https://pkg.go.dev/github.com/client9/gospell#NewChecker) — runtime query API wrapping a base dictionary
+- [`(*Checker).Spell`](https://pkg.go.dev/github.com/client9/gospell#Checker.Spell) — spell check against base + all active WordLists
+- [`(*Checker).Suggest`](https://pkg.go.dev/github.com/client9/gospell#Checker.Suggest) — suggestions from base + WordLists
+- [`(*Checker).AddWordList`](https://pkg.go.dev/github.com/client9/gospell#Checker.AddWordList) / [`RemoveWordList`](https://pkg.go.dev/github.com/client9/gospell#Checker.RemoveWordList)
+- [`NewWordList`](https://pkg.go.dev/github.com/client9/gospell#NewWordList) / [`NewWordListFile`](https://pkg.go.dev/github.com/client9/gospell#NewWordListFile)
+- [`(*GoSpell).Spell`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Spell) — direct base-only check (no WordLists)
+- [`(*GoSpell).SetSuggester`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.SetSuggester) / [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
 
 ## Hunspell Compatibility
 
@@ -131,6 +175,9 @@ This package understands the Hunspell dictionary format and supports:
 - iconv conversions
 - case handling
 - custom word lists
+
+For a feature checklist and compatibility matrix, see
+[`docs/hunspell-compatibility.md`](/Users/nickg/projects/gospell/docs/hunspell-compatibility.md).
 
 ## Dictionary Files
 
@@ -146,4 +193,3 @@ This project is still evolving. If you find a bug, a mismatch with Hunspell beha
 ## License
 
 [MIT](/LICENSE)
-
