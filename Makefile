@@ -5,10 +5,10 @@ SHELL := sh
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' 
 
-.PHONY: fixture hunspell-source
-fixture: hunspell-en_US hunspell-source
+.PHONY: fixture
+fixture: hunspell-en_US hunspell
 
-hunspell-source:
+hunspell:
 	git clone --depth 1 https://github.com/hunspell/hunspell.git
 
 hunspell-en_US:
