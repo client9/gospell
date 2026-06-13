@@ -5,8 +5,11 @@ SHELL := sh
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' 
 
-.PHONY: fixture
-fixture: hunspell-en_US
+.PHONY: fixture hunspell-source
+fixture: hunspell-en_US hunspell-source
+
+hunspell-source:
+	git clone -depth 1 git@github.com:hunspell/hunspell.git
 
 hunspell-en_US:
 	curl -L -o "$@.zip" https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_US-2026.02.25.zip
@@ -51,4 +54,5 @@ clean: ## remove any generated files
 	go clean -i -cache -testcache
 	rm -f *.out 
 	rm -f ./gospell
+	rm -rf hunspell
 	rm -rf hunspell-en_US*
