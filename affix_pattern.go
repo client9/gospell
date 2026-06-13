@@ -19,9 +19,9 @@ type affixMatcher struct {
 // matchElem represents one character's worth of pattern: any char, a literal,
 // an inclusive class [abc], or an exclusive class [^abc].
 type matchElem struct {
-	kind    matchElemKind
-	literal rune
 	class   []rune // non-nil only for matchClass / matchNegClass
+	literal rune
+	kind    matchElemKind
 }
 
 type matchElemKind byte

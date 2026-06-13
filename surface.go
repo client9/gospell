@@ -4,6 +4,7 @@ package gospell
 // to decide whether it is valid standalone and/or inside compounds.
 type surfaceEntry struct {
 	Word                  string
+	RawFlags              []string
 	StandaloneAllowed     bool
 	CompoundStartAllowed  bool
 	CompoundMiddleAllowed bool
@@ -12,7 +13,6 @@ type surfaceEntry struct {
 	ForbiddenWord         bool // set by FORBIDDENWORD; blocks all use including case-fallback
 	IsRoot                bool // true when the form came directly from a dic entry (state==0)
 	OnlyInCompound        bool
-	RawFlags              []string
 }
 
 type compoundPosition uint8

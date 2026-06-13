@@ -27,9 +27,9 @@ const (
 )
 
 type affix struct {
+	Rules        []rule
 	Type         affixType
 	CrossProduct bool
-	Rules        []rule
 }
 
 type compoundRules struct {
@@ -152,42 +152,16 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 }
 
 type rule struct {
+	matcher   *affixMatcher
 	Strip     string
 	AffixText string
 	OutFlags  string
-	matcher   *affixMatcher
 }
 
 type dictConfig struct {
-	Flag                string
-	flagMode            flagMode
-	TryChars            string
-	WordChars           string
-	NoSuggestFlag       string
-	NeedAffixFlag       string
-	ForbiddenWordFlag   string
-	ForceUcaseFlag      string
-	CompoundBeginFlag   string
-	CompoundMiddleFlag  string
-	CompoundEndFlag     string
-	CompoundFlag        string
-	CompoundPermitFlag  string
-	CompoundForbidFlag  string
-	IconvReplacements   []string
-	Replacements        [][2]string
-	CheckCompoundCase   bool
-	CheckCompoundDup    bool
-	CheckCompoundTriple bool
-	SimplifiedTriple    bool
-	CheckCompoundRep    bool
-	BreakEnabled        bool // false only when BREAK 0 is set
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
 	AffixMap               map[string]*affix
-	CompoundMin            int
-	CompoundOnly           string
-	CompoundRule           []string
-	checkCompoundPatterns  []compoundPatternRule
 	compoundMap            map[string][]string
 	compoundBeginWords     map[string]struct{}
 	compoundMiddleWords    map[string]struct{}
@@ -195,6 +169,32 @@ type dictConfig struct {
 	compoundForbiddenWords map[string]struct{}
 	compoundOnlyWords      map[string]struct{}
 	forceUcaseWords        map[string]struct{}
+	Flag                   string
+	TryChars               string
+	WordChars              string
+	NoSuggestFlag          string
+	NeedAffixFlag          string
+	ForbiddenWordFlag      string
+	ForceUcaseFlag         string
+	CompoundBeginFlag      string
+	CompoundMiddleFlag     string
+	CompoundEndFlag        string
+	CompoundFlag           string
+	CompoundPermitFlag     string
+	CompoundForbidFlag     string
+	CompoundOnly           string
+	IconvReplacements      []string
+	Replacements           [][2]string
+	CompoundRule           []string
+	checkCompoundPatterns  []compoundPatternRule
+	flagMode               flagMode
+	CompoundMin            int
+	CheckCompoundCase      bool
+	CheckCompoundDup       bool
+	CheckCompoundTriple    bool
+	SimplifiedTriple       bool
+	CheckCompoundRep       bool
+	BreakEnabled           bool // false only when BREAK 0 is set
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid

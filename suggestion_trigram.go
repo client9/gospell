@@ -17,11 +17,11 @@ type TrigramOptions struct {
 // TrigramSuggester builds a hashed trigram inverted index once and then
 // narrows candidates by postings-list overlap before reranking with Levenshtein.
 type TrigramSuggester struct {
-	opts          TrigramOptions
-	words         []string
 	postings      map[uint64][]int
+	words         []string
 	wordGramCount []int
 	wordLen       []int
+	opts          TrigramOptions
 	maxWordLen    int
 }
 

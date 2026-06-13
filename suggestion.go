@@ -36,8 +36,8 @@ type LevenshteinOptions struct {
 // LevenshteinSuggester is a simple reference implementation that scans every
 // loaded dictionary word and ranks candidates by edit distance.
 type LevenshteinSuggester struct {
-	opts  LevenshteinOptions
 	words []string
+	opts  LevenshteinOptions
 }
 
 var (

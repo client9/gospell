@@ -18,8 +18,8 @@ type MutationOptions struct {
 // checks each candidate directly against the dictionary. It does not build an
 // inverted index up front.
 type MutationSuggester struct {
-	opts MutationOptions
 	src  SuggestionSource
+	opts MutationOptions
 }
 
 var _ Suggestions = (*MutationSuggester)(nil)

@@ -23,6 +23,7 @@ type iconvRule struct {
 
 // GoSpell is main struct
 type GoSpell struct {
+	suggester           Suggestions
 	dict                map[string]struct{}
 	surfaces            map[string][]surfaceEntry
 	wordFlags           map[string]map[string]struct{}
@@ -34,24 +35,23 @@ type GoSpell struct {
 	compoundMiddle      map[string]struct{}
 	compoundEnd         map[string]struct{}
 	forceUcaseWords     map[string]struct{}
+	blockedCompound     map[string]struct{}
 	compoundBeginFlag   string
 	compoundMiddleFlag  string
 	compoundEndFlag     string
 	compoundOnlyFlag    string
 	compoundPatterns    []compoundPatternRule
-	blockedCompound     map[string]struct{}
+	iconvRules          []iconvRule
+	compounds           []*regexp.Regexp
+	repReplacements     [][2]string
 	compoundMin         int
 	maxWordLen          int
 	flagMode            flagMode
-	iconvRules          []iconvRule
-	compounds           []*regexp.Regexp
-	suggester           Suggestions
 	checkCompoundCase   bool
 	checkCompoundDup    bool
 	checkCompoundTriple bool
 	simplifiedTriple    bool
 	checkCompoundRep    bool
-	repReplacements     [][2]string
 	breakEnabled        bool
 }
 

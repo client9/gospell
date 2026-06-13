@@ -21,9 +21,9 @@ type SymSpellOptions struct {
 // PrefixLength runes. Queries use the same delete generation to recover a
 // small candidate set, which is then reranked by edit distance.
 type SymSpellSuggester struct {
-	opts    SymSpellOptions
-	words   []string
 	deletes map[string][]int
+	words   []string
+	opts    SymSpellOptions
 }
 
 var _ Suggestions = (*SymSpellSuggester)(nil)
