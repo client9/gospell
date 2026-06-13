@@ -34,4 +34,6 @@ go.work.sum
 # AIism
 CLAUDE.md
 .claude/
+.codex/
+
 
