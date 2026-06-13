@@ -5,13 +5,21 @@ SHELL := sh
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' 
 
+.PHONY: fixture
+fixture: hunspell-en_US
+
+hunspell-en_US:
+	curl -L -o "$@.zip" https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_US-2026.02.25.zip
+	mkdir -p $@
+	unzip -d $@ "$@.zip"
+
 build: ## build module
 	go build ./cmd/gospell
 
 bench: ## run benchmarks
 	go test -bench=. -benchmem 
 
-test: ## run all unit tests
+test: fixture ## run all unit tests
 	go test ./...
 
 version: ## print OS, Go, and golangci versions
@@ -43,3 +51,4 @@ clean: ## remove any generated files
 	go clean -i -cache -testcache
 	rm -f *.out 
 	rm -f ./gospell
+	rm -rf hunspell-en_US*

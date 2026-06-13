@@ -20,7 +20,7 @@ func loadBenchmarkReaders(b *testing.B) ([]byte, []byte) {
 		return benchAffBytes, benchDicBytes
 	}
 
-	affF, err := os.Open("hunspell-en_US-2026/en_US.aff")
+	affF, err := os.Open("hunspell-en_US/en_US.aff")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func loadBenchmarkReaders(b *testing.B) ([]byte, []byte) {
 		b.Fatal(err)
 	}
 
-	dicF, err := os.Open("hunspell-en_US-2026/en_US.dic")
+	dicF, err := os.Open("hunspell-en_US/en_US.dic")
 	if err != nil {
 		b.Fatal(err)
 	}

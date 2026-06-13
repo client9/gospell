@@ -6,13 +6,13 @@ import (
 )
 
 func TestLevenshteinSuggester(t *testing.T) {
-	aff, err := os.Open("hunspell-en_US-2026/en_US.aff")
+	aff, err := os.Open("hunspell-en_US/en_US.aff")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = aff.Close() }()
 
-	dic, err := os.Open("hunspell-en_US-2026/en_US.dic")
+	dic, err := os.Open("hunspell-en_US/en_US.dic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +44,13 @@ func TestLevenshteinSuggester(t *testing.T) {
 }
 
 func TestTrigramSuggester(t *testing.T) {
-	aff, err := os.Open("hunspell-en_US-2026/en_US.aff")
+	aff, err := os.Open("hunspell-en_US/en_US.aff")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = aff.Close() }()
 
-	dic, err := os.Open("hunspell-en_US-2026/en_US.dic")
+	dic, err := os.Open("hunspell-en_US/en_US.dic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +82,13 @@ func TestTrigramSuggester(t *testing.T) {
 }
 
 func TestSymSpellSuggester(t *testing.T) {
-	aff, err := os.Open("hunspell-en_US-2026/en_US.aff")
+	aff, err := os.Open("hunspell-en_US/en_US.aff")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = aff.Close() }()
 
-	dic, err := os.Open("hunspell-en_US-2026/en_US.dic")
+	dic, err := os.Open("hunspell-en_US/en_US.dic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,13 +141,13 @@ func TestSymSpellSuggester(t *testing.T) {
 }
 
 func TestMutationSuggester(t *testing.T) {
-	aff, err := os.Open("hunspell-en_US-2026/en_US.aff")
+	aff, err := os.Open("hunspell-en_US/en_US.aff")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = aff.Close() }()
 
-	dic, err := os.Open("hunspell-en_US-2026/en_US.dic")
+	dic, err := os.Open("hunspell-en_US/en_US.dic")
 	if err != nil {
 		t.Fatal(err)
 	}

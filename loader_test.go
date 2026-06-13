@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const testDictDir = "hunspell-en_US-2026"
+const testDictDir = "hunspell-en_US"
 
 func TestOpen(t *testing.T) {
 	gs, err := Open("en_US", []string{testDictDir})
