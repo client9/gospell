@@ -9,7 +9,7 @@ help:
 fixture: hunspell-en_US hunspell-source
 
 hunspell-source:
-	git clone -depth 1 git@github.com:hunspell/hunspell.git
+	git clone --depth 1 git@github.com:hunspell/hunspell.git
 
 hunspell-en_US:
 	curl -L -o "$@.zip" https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_US-2026.02.25.zip
