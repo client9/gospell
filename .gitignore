@@ -36,4 +36,8 @@ CLAUDE.md
 .claude/
 .codex/
 
+# hunspell fixtures
+hunspell-en_US/
+hunspell
+*.zip
 
