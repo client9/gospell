@@ -845,7 +845,9 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 		case "NOSPLITSUGS":
 			// suggestion-only option; no effect on spell checking
 		case "MAXNGRAMSUGS":
-			// not supported
+			// not supported.  This is for spelling suggestions
+		case "KEY":
+			// no supported. This is for spelling suggestions
 		default:
 			return nil, fmt.Errorf("unknown command %v", parts)
 		}
