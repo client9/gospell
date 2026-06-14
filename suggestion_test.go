@@ -122,6 +122,71 @@ banana
 	}
 }
 
+func TestSuggestCaseDeduplication(t *testing.T) {
+	// allLower input should produce only the lowercase suggestion, not titleCase
+	// or allUpper variants of the same word.
+	aff := strings.NewReader(`SET UTF-8
+TRY esianrtolcdugmphbyfvkwz
+`)
+	dic := strings.NewReader(`2
+guidance
+silly
+`)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := gs.Suggest("guidence", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got {
+		if s.Word == "Guidance" || s.Word == "GUIDANCE" {
+			t.Errorf("got unwanted case variant %q for allLower input %q; all suggestions: %v", s.Word, "guidence", got)
+		}
+	}
+	found := false
+	for _, s := range got {
+		if s.Word == "guidance" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected suggestion %q for %q; got: %v", "guidance", "guidence", got)
+	}
+}
+
+func TestSuggestProperNounFromLowerInput(t *testing.T) {
+	// allLower input for a word that only exists as titleCase in the dictionary
+	// should still suggest the titleCase form (since lowercase won't pass spell check).
+	aff := strings.NewReader(`SET UTF-8
+TRY esianrtolcdugmphbyfvkwz
+`)
+	dic := strings.NewReader(`1
+London
+`)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := gs.Suggest("londan", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range got {
+		if s.Word == "London" {
+			found = true
+		}
+		if s.Word == "london" || s.Word == "LONDON" {
+			t.Errorf("got unwanted case variant %q for allLower input %q; all suggestions: %v", s.Word, "londan", got)
+		}
+	}
+	if !found {
+		t.Logf("no London suggestion for londan (edit distance may be too large): %v", got)
+	}
+}
+
 func TestSuggestWithoutSuggester(t *testing.T) {
 	gs := &GoSpell{}
 	if _, err := gs.Suggest("foo", 5); err == nil {

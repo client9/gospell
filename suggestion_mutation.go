@@ -95,6 +95,13 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 		return s.ngramSuggest(word, limit)
 	}
 
+	// Deduplicate case variants: "guidance", "Guidance", "GUIDANCE" are all
+	// one edit away from "guidence" and all pass spell check (via case fallback
+	// in spellConverted). Keep only the candidate whose case style best matches
+	// the query's case style; when two candidates tie on case priority, keep
+	// the lower penalty one.
+	best = dedupCaseVariants(word, best)
+
 	type scored struct {
 		word    string
 		dist    int
@@ -372,6 +379,71 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		if !emit(candidate, 2) {
 			return
 		}
+	}
+}
+
+// dedupCaseVariants removes case-equivalent duplicates from candidates.
+// For each group of candidates that differ only in case, it keeps the one
+// whose case style best matches the query's case style (e.g. for an allLower
+// query, "guidance" beats "Guidance" beats "GUIDANCE").
+func dedupCaseVariants(query string, candidates map[string]int) map[string]int {
+	queryStyle := caseStyle(query)
+	type entry struct {
+		word    string
+		penalty int
+		pri     int
+	}
+	deduped := make(map[string]entry, len(candidates))
+	for candidate, penalty := range candidates {
+		key := strings.ToLower(candidate)
+		pri := casePriority(caseStyle(candidate), queryStyle)
+		if existing, ok := deduped[key]; !ok || pri < existing.pri || (pri == existing.pri && penalty < existing.penalty) {
+			deduped[key] = entry{candidate, penalty, pri}
+		}
+	}
+	out := make(map[string]int, len(deduped))
+	for _, e := range deduped {
+		out[e.word] = e.penalty
+	}
+	return out
+}
+
+// casePriority returns how well candidateStyle matches queryStyle.
+// Lower is better; 0 means exact match.
+func casePriority(candidateStyle, queryStyle wordCase) int {
+	if candidateStyle == queryStyle {
+		return 0
+	}
+	switch queryStyle {
+	case allLower:
+		switch candidateStyle {
+		case titleCase:
+			return 1
+		case allUpper:
+			return 2
+		default:
+			return 3
+		}
+	case titleCase:
+		switch candidateStyle {
+		case allLower:
+			return 1
+		case allUpper:
+			return 2
+		default:
+			return 3
+		}
+	case allUpper:
+		switch candidateStyle {
+		case titleCase:
+			return 1
+		case allLower:
+			return 2
+		default:
+			return 3
+		}
+	default:
+		return 3
 	}
 }
 
