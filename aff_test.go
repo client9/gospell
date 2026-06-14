@@ -1842,3 +1842,109 @@ foowordbar/FS
 		}
 	}
 }
+
+func TestBlockedCompoundNotBypassedByCompoundRule(t *testing.T) {
+	// A multi-word personal-dictionary entry "new york" adds "newyork" to
+	// blockedCompound. If "newyork" also matches a COMPOUNDRULE pattern the
+	// blockedCompound guard must fire first and reject it.
+	sampleAff := `COMPOUNDRULE 1
+COMPOUNDRULE WW
+`
+	// "new york" is a two-word entry; its space-free form "newyork" must be blocked.
+	sampleDic := `3
+new/W
+york/W
+new york
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"new", true},
+		{"york", true},
+		{"yorkyork", true}, // valid two-word compound (WW)
+		{"newyork", false}, // blocked: canonical form is "new york" (two words)
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("BlockedCompoundNotBypassedByCompoundRule %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestDicWordSplit(t *testing.T) {
+	for _, tt := range []struct {
+		input    string
+		word     string
+		flags    string
+		hasFlags bool
+	}{
+		{"hello", "hello", "", false},
+		{"hello/AB", "hello", "AB", true},
+		{"/", "/", "", false},
+		{"TCP\\/IP", "TCP/IP", "", false},
+		// Escaped slash in the *flags* field must also be unescaped.
+		{"word/A\\/B", "word", "A/B", true},
+	} {
+		w, f, h := dicWordSplit(tt.input)
+		if w != tt.word || f != tt.flags || h != tt.hasFlags {
+			t.Errorf("dicWordSplit(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tt.input, w, f, h, tt.word, tt.flags, tt.hasFlags)
+		}
+	}
+}
+
+func TestSpellBreakNonASCIIPattern(t *testing.T) {
+	// BREAK with a multi-byte UTF-8 pattern (em-dash U+2014, 3 bytes).
+	// Verifies that spellBreak correctly slices at the rune boundary.
+	sampleAff := `SET UTF-8
+BREAK 1
+BREAK —
+`
+	sampleDic := `2
+left
+right
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"left", true},
+		{"right", true},
+		{"left—right", true},  // split at em-dash
+		{"left—wrong", false}, // right side not in dict
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("SpellBreakNonASCII %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestMergeFlagsFastPath(t *testing.T) {
+	// Already-normalized single-part inputs must be returned unchanged (fast path).
+	for _, tt := range []struct {
+		mode  flagMode
+		input string
+		want  string
+	}{
+		{flagASCII, "ABS", "ABS"}, // sorted, no dups → fast-path returns as-is
+		{flagASCII, "BA", "AB"},   // out of order → slow path sorts
+		{flagASCII, "AAB", "AB"},  // duplicate → slow path deduplicates
+		{flagLong, "ABCD", "ABCD"},
+		{flagLong, "CDAB", "ABCD"},
+		{flagNum, "1,2,3", "1,2,3"},
+		{flagNum, "3,1,2", "1,2,3"},
+	} {
+		got := mergeFlags(tt.mode, tt.input)
+		if got != tt.want {
+			t.Errorf("mergeFlags(mode=%d, %q) = %q, want %q", tt.mode, tt.input, got, tt.want)
+		}
+	}
+}

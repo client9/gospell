@@ -23,8 +23,13 @@ type iconvRule struct {
 
 // GoSpell is main struct
 type GoSpell struct {
-	suggester           Suggestions
-	dict                map[string]struct{}
+	suggester Suggestions
+	dict      map[string]struct{}
+	// dictByRuneLen groups every dict key by its rune count. It is built once
+	// at load time and used by compoundTypoMatchesDict to avoid a full dict
+	// scan: only words with the same rune count can be one edit away, so the
+	// index shrinks the candidate set by roughly 1/maxWordLen on average.
+	dictByRuneLen       map[int][]string
 	surfaces            map[string][]surfaceEntry
 	wordFlags           map[string]map[string]struct{}
 	wordEntryCount      map[string]int
@@ -57,16 +62,21 @@ type GoSpell struct {
 // InputConversion does any character substitution before checking
 // based on the ICONV stanza in the AFF file.
 func (s *GoSpell) InputConversion(raw []byte) string {
-	sraw := string(raw)
+	return s.inputConversionString(string(raw))
+}
+
+// inputConversionString is the string-input variant of InputConversion,
+// used internally to avoid a string→[]byte→string round-trip.
+func (s *GoSpell) inputConversionString(word string) string {
 	if len(s.iconvRules) == 0 {
-		return sraw
+		return word
 	}
 	var b strings.Builder
-	for i := 0; i < len(sraw); {
+	for i := 0; i < len(word); {
 		best := -1
 		bestLen := 0
 		for idx, rule := range s.iconvRules {
-			if strings.HasPrefix(sraw[i:], rule.old) && len(rule.old) > bestLen {
+			if strings.HasPrefix(word[i:], rule.old) && len(rule.old) > bestLen {
 				best = idx
 				bestLen = len(rule.old)
 			}
@@ -76,7 +86,7 @@ func (s *GoSpell) InputConversion(raw []byte) string {
 			i += len(s.iconvRules[best].old)
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(sraw[i:])
+		r, size := utf8.DecodeRuneInString(word[i:])
 		b.WriteRune(r)
 		i += size
 	}
@@ -106,6 +116,11 @@ func (s *GoSpell) AddWordRaw(word string) bool {
 	}
 	if len(word) > s.maxWordLen {
 		s.maxWordLen = len(word)
+	}
+	if s.dictByRuneLen != nil {
+		// Keep the rune-length index in sync when words are added after load.
+		rl := utf8.RuneCountInString(word)
+		s.dictByRuneLen[rl] = append(s.dictByRuneLen[rl], word)
 	}
 	return true
 }
@@ -180,7 +195,7 @@ func (s *GoSpell) isWordForbidden(word string) bool {
 
 // Spell reports whether word is correctly spelled.
 func (s *GoSpell) Spell(word string) bool {
-	word = s.InputConversion([]byte(word))
+	word = s.inputConversionString(word)
 	return s.spellConverted(word)
 }
 
@@ -260,14 +275,14 @@ func (s *GoSpell) spellExact(word string) bool {
 	if numericTokenRegexp.MatchString(word) {
 		return true
 	}
-	for _, pat := range s.compounds {
-		if pat.MatchString(word) {
-			return true
-		}
-	}
 	if s.blockedCompound != nil {
 		if _, ok := s.blockedCompound[word]; ok {
 			return false
+		}
+	}
+	for _, pat := range s.compounds {
+		if pat.MatchString(word) {
+			return true
 		}
 	}
 	if s.spellCompound(word, false) {
@@ -297,6 +312,9 @@ func (s *GoSpell) spellBreak(word string, depth int) bool {
 		switch {
 		case strings.HasPrefix(pat, "^"):
 			pfx := pat[1:]
+			// Byte-length comparison is safe: HasPrefix guarantees pfx's bytes
+			// exactly match word's start, so word[len(pfx):] is always at a
+			// valid UTF-8 rune boundary.
 			if len(word) > len(pfx) && strings.HasPrefix(word, pfx) {
 				rest := word[len(pfx):]
 				if s.spellExact(rest) || s.spellBreak(rest, depth+1) {
@@ -305,6 +323,7 @@ func (s *GoSpell) spellBreak(word string, depth int) bool {
 			}
 		case strings.HasSuffix(pat, "$"):
 			sfx := pat[:len(pat)-1]
+			// Same reasoning as above: HasSuffix guarantees alignment.
 			if len(word) > len(sfx) && strings.HasSuffix(word, sfx) {
 				prefix := word[:len(word)-len(sfx)]
 				if s.spellExact(prefix) || s.spellBreak(prefix, depth+1) {
@@ -634,11 +653,9 @@ func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
 		return ok
 	}
+	_, inOnlyRoot := s.compoundOnlyRoot[word]
 	return s.compoundSetContains(s.compoundEnd, word) ||
-		(s.compoundOnlyRoot != nil && func() bool {
-			_, ok := s.compoundOnlyRoot[word]
-			return ok
-		}()) ||
+		inOnlyRoot ||
 		s.wordHasFlag(word, s.compoundEndFlag)
 }
 
@@ -851,11 +868,22 @@ func (s *GoSpell) spellSimplifiedTriple(word string) bool {
 	return false
 }
 
+// compoundTypoMatchesDict reports whether word is one edit away from any
+// standalone dictionary entry of the same rune length. It is called from
+// spellCompound to suppress false-positive splits: when a 3+-part compound
+// parse succeeds but the whole word is itself just a misspelling of a single
+// real word (e.g. "teh" splits as "t"+"e"+"h" but is really a typo of "the"),
+// this check rejects the compound interpretation.
+//
+// Only same-rune-length words can be one edit away (a substitution edit
+// preserves length; insertion/deletion changes it by 1, but oneEditAway
+// also covers those). dictByRuneLen lets us skip the ~99% of the dictionary
+// that has the wrong rune count.
 func (s *GoSpell) compoundTypoMatchesDict(word string) bool {
-	for dictWord := range s.dict {
-		if compoundRuneLen(dictWord) != compoundRuneLen(word) {
-			continue
-		}
+	rl := compoundRuneLen(word)
+	// Reading a nil map is safe in Go and returns nil, so this works correctly
+	// even for GoSpell values constructed directly (without NewGoSpellReader).
+	for _, dictWord := range s.dictByRuneLen[rl] {
 		if oneEditAway(word, dictWord) {
 			return true
 		}
@@ -1182,6 +1210,18 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			return len(gs.iconvRules[i].old) > len(gs.iconvRules[j].old)
 		})
 	}
+
+	// Build the rune-length index used by compoundTypoMatchesDict.
+	// oneEditAway can only return true for words whose rune counts differ by at
+	// most 1, so grouping by rune count lets the typo guard skip the vast
+	// majority of the dictionary. We pre-size the outer map with maxWordLen as
+	// a rough upper bound on the number of distinct lengths.
+	gs.dictByRuneLen = make(map[int][]string, gs.maxWordLen)
+	for w := range gs.dict {
+		rl := utf8.RuneCountInString(w)
+		gs.dictByRuneLen[rl] = append(gs.dictByRuneLen[rl], w)
+	}
+
 	return &gs, nil
 }
 

@@ -226,7 +226,7 @@ func dicWordSplit(entry string) (word, flags string, hasFlags bool) {
 	if idx == 0 && len(working) == 1 {
 		return "/", "", false
 	}
-	return strings.ReplaceAll(working[:idx], "\x00", "/"), working[idx+1:], true
+	return strings.ReplaceAll(working[:idx], "\x00", "/"), strings.ReplaceAll(working[idx+1:], "\x00", "/"), true
 }
 
 func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
@@ -238,7 +238,8 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 	if word == "" || keyString == "" {
 		return nil, fmt.Errorf("slash char found in first or last position")
 	}
-	keys, err := a.splitFlags(a.normalizeFlags(keyString))
+	normedFlags := a.normalizeFlags(keyString)
+	keys, err := a.splitFlags(normedFlags)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +255,7 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 		}
 	}
 	// The root dic entry is a virtual stem if it carries the NEEDAFFIX flag.
-	rootNeedsAffix := a.NeedAffixFlag != "" && flagContains(a.normalizeFlags(keyString), a.NeedAffixFlag, a.flagMode)
+	rootNeedsAffix := a.NeedAffixFlag != "" && flagContains(normedFlags, a.NeedAffixFlag, a.flagMode)
 	added := make(map[string]int)
 	seen := make(map[string]struct{})
 	var out []expandedWord
@@ -405,7 +406,53 @@ func (a *dictConfig) normalizeFlags(flags string) string {
 	return mergeFlags(a.flagMode, flags)
 }
 
+// isFlagsNormalized reports whether a single flag string is already in
+// normalizeFlags canonical form: no duplicates, lexicographically sorted.
+// Returns false conservatively when the check cannot be done cheaply.
+func isFlagsNormalized(mode flagMode, s string) bool {
+	switch mode {
+	case flagASCII, flagUTF8:
+		prev := rune(-1)
+		for _, r := range s {
+			if r <= prev {
+				return false // duplicate or out of order
+			}
+			prev = r
+		}
+		return true
+	case flagLong:
+		if len(s)%2 != 0 {
+			return false
+		}
+		prev := ""
+		for i := 0; i+1 < len(s); i += 2 {
+			tok := s[i : i+2]
+			if tok <= prev {
+				return false
+			}
+			prev = tok
+		}
+		return true
+	case flagNum:
+		prev := ""
+		first := true
+		for part := range strings.SplitSeq(s, ",") {
+			if part == "" || (!first && part <= prev) {
+				return false
+			}
+			prev = part
+			first = false
+		}
+		return true
+	}
+	return false
+}
+
 func mergeFlags(mode flagMode, parts ...string) string {
+	// Fast path: single non-empty part that is already in canonical form.
+	if len(parts) == 1 && parts[0] != "" && isFlagsNormalized(mode, parts[0]) {
+		return parts[0]
+	}
 	seen := make(map[string]struct{})
 	var tokens []string
 	for _, part := range parts {
