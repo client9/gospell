@@ -315,7 +315,9 @@ func (s *GoSpell) spellBreak(word string, depth int) bool {
 			// Byte-length comparison is safe: HasPrefix guarantees pfx's bytes
 			// exactly match word's start, so word[len(pfx):] is always at a
 			// valid UTF-8 rune boundary.
-			if len(word) > len(pfx) && strings.HasPrefix(word, pfx) {
+			// Skip bare "^" (empty pfx): stripping nothing produces the same
+			// word and causes infinite recursion.
+			if len(pfx) > 0 && len(word) > len(pfx) && strings.HasPrefix(word, pfx) {
 				rest := word[len(pfx):]
 				if s.spellExact(rest) || s.spellBreak(rest, depth+1) {
 					return true
@@ -324,7 +326,8 @@ func (s *GoSpell) spellBreak(word string, depth int) bool {
 		case strings.HasSuffix(pat, "$"):
 			sfx := pat[:len(pat)-1]
 			// Same reasoning as above: HasSuffix guarantees alignment.
-			if len(word) > len(sfx) && strings.HasSuffix(word, sfx) {
+			// Skip bare "$" (empty sfx): same infinite-recursion hazard as "^".
+			if len(sfx) > 0 && len(word) > len(sfx) && strings.HasSuffix(word, sfx) {
 				prefix := word[:len(word)-len(sfx)]
 				if s.spellExact(prefix) || s.spellBreak(prefix, depth+1) {
 					return true
@@ -651,7 +654,14 @@ func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 		}
 	}
 	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
-		return ok
+		if ok {
+			return true
+		}
+		// Surface entry found but end-position not set. Words whose DIC entry
+		// carries ONLY the ONLYINCOMPOUND flag (no explicit position flags) are
+		// recorded in compoundOnlyRoot and are valid at all compound positions.
+		_, inOnlyRoot := s.compoundOnlyRoot[word]
+		return inOnlyRoot
 	}
 	_, inOnlyRoot := s.compoundOnlyRoot[word]
 	return s.compoundSetContains(s.compoundEnd, word) ||

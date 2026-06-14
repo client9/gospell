@@ -1885,6 +1885,8 @@ func TestDicWordSplit(t *testing.T) {
 		{"hello", "hello", "", false},
 		{"hello/AB", "hello", "AB", true},
 		{"/", "/", "", false},
+		// "/" with flags — word is "/" and flags follow.
+		{"/AB", "/", "AB", true},
 		{"TCP\\/IP", "TCP/IP", "", false},
 		// Escaped slash in the *flags* field must also be unescaped.
 		{"word/A\\/B", "word", "A/B", true},
@@ -1946,13 +1948,82 @@ make/X
 		word string
 		want bool
 	}{
-		{"run", true},    // base form valid
-		{"make", true},   // base form valid
-		{"making", true}, // strip "e", add "ing" — rule applies correctly
+		{"run", true},     // base form valid
+		{"make", true},    // base form valid
+		{"making", true},  // strip "e", add "ing" — rule applies correctly
 		{"runing", false}, // strip "e" not present in "run" — rule must be skipped
 	} {
 		if got := gs.Spell(tt.word); got != tt.want {
 			t.Errorf("AffixExpandSkipsMismatchedStrip %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestOnlyInCompoundAtFinalPosition(t *testing.T) {
+	// Words with ONLYINCOMPOUND and no other compound-position flags must be
+	// accepted at the compound-final position, not just start/middle.
+	// Previously CompoundEndAllowed was set to false, making compoundOnlyRoot
+	// unreachable and rejecting valid compound-final uses.
+	sampleAff := `SET UTF-8
+ONLYINCOMPOUND O
+COMPOUNDFLAG A
+COMPOUNDMIN 2
+`
+	sampleDic := `3
+pre/A
+ism/O
+fix/A
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"pre", true},    // standalone, no restriction
+		{"fix", true},    // standalone, no restriction
+		{"ism", false},   // ONLYINCOMPOUND: not standalone
+		{"preism", true}, // compound: "pre" (start) + "ism" (end, ONLYINCOMPOUND)
+		{"fixism", true}, // compound: "fix" (start) + "ism" (end, ONLYINCOMPOUND)
+		{"ismpre", true}, // compound: "ism" (start, ONLYINCOMPOUND) + "pre" (end)
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("OnlyInCompoundAtFinal %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestSpellBreakBareAnchor(t *testing.T) {
+	// A bare "^" or "$" BREAK pattern has an empty prefix/suffix.
+	// Previously spellBreak recursed infinitely (depth guard returned false),
+	// incorrectly rejecting all words when such a pattern was loaded.
+	sampleAff := `SET UTF-8
+BREAK 2
+BREAK ^
+BREAK $
+`
+	sampleDic := `3
+hello
+world
+foo
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"hello", true},
+		{"world", true},
+		{"foo", true},
+		{"bar", false},
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("SpellBreakBareAnchor %q: got %v want %v", tt.word, got, tt.want)
 		}
 	}
 }

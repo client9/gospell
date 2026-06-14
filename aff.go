@@ -228,9 +228,10 @@ func dicWordSplit(entry string) (word, flags string, hasFlags bool) {
 	if idx == -1 {
 		return strings.ReplaceAll(working, "\x00", "/"), "", false
 	}
-	// A lone "/" with nothing before or after → the word is "/" itself.
-	if idx == 0 && len(working) == 1 {
-		return "/", "", false
+	// A leading "/" means the word itself is "/"; anything after is the flags.
+	if idx == 0 {
+		flags := strings.ReplaceAll(working[1:], "\x00", "/")
+		return "/", flags, flags != ""
 	}
 	return strings.ReplaceAll(working[:idx], "\x00", "/"), strings.ReplaceAll(working[idx+1:], "\x00", "/"), true
 }
