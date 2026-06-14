@@ -186,6 +186,7 @@ type dictConfig struct {
 	Replacements          [][2]string
 	CompoundRule          []string
 	checkCompoundPatterns []compoundPatternRule
+	BreakPatterns         []string
 	flagMode              flagMode
 	CompoundMin           int
 	CheckCompoundCase     bool
@@ -194,7 +195,6 @@ type dictConfig struct {
 	SimplifiedTriple      bool
 	CheckCompoundRep      bool
 	BreakEnabled          bool // false only when BREAK 0 is set
-	BreakPatterns         []string
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid

@@ -43,6 +43,7 @@ type GoSpell struct {
 	iconvRules          []iconvRule
 	compounds           []*regexp.Regexp
 	repReplacements     [][2]string
+	breakPatterns       []string
 	compoundMin         int
 	maxWordLen          int
 	flagMode            flagMode
@@ -51,7 +52,6 @@ type GoSpell struct {
 	checkCompoundTriple bool
 	simplifiedTriple    bool
 	checkCompoundRep    bool
-	breakPatterns       []string
 }
 
 // InputConversion does any character substitution before checking
