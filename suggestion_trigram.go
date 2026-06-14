@@ -113,7 +113,7 @@ func (s *TrigramSuggester) Suggest(word string, limit int) ([]Suggestion, error)
 		if shared == 0 {
 			continue
 		}
-		if s.opts.MaxLengthDiff >= 0 && absIntTrigram(s.wordLen[id]-len(word)) > s.opts.MaxLengthDiff {
+		if s.opts.MaxLengthDiff >= 0 && absIntLocal(s.wordLen[id]-len(word)) > s.opts.MaxLengthDiff {
 			continue
 		}
 
@@ -206,11 +206,4 @@ func dedupeSortedUint64Trigram(dst []uint64) []uint64 {
 		}
 	}
 	return dst[:n]
-}
-
-func absIntTrigram(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
 }

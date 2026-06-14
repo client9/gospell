@@ -375,10 +375,31 @@ func appendFlags(base, extra string, mode flagMode) string {
 	return mergeFlags(mode, base, extra)
 }
 
+// expandStateKey builds a deduplication key for the (word, flags, compound/affix state) tuple.
+// flags is assumed pre-sorted by normalizeFlags — no copy or re-sort is performed here.
 func (a *dictConfig) expandStateKey(word string, flags []string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, prefixCount, suffixCount int) string {
-	normalized := append([]string(nil), flags...)
-	sort.Strings(normalized)
-	return word + "\x00" + strings.Join(normalized, "\x1f") + "\x00" + strconv.FormatBool(compoundOnly) + "\x00" + strconv.Itoa(int(currentMask)) + "\x00" + strconv.Itoa(int(currentState)) + "\x00" + strconv.FormatBool(explicitForbid) + "\x00" + strconv.Itoa(prefixCount) + "\x00" + strconv.Itoa(suffixCount)
+	var b strings.Builder
+	b.WriteString(word)
+	b.WriteByte('\x00')
+	for i, f := range flags {
+		if i > 0 {
+			b.WriteByte('\x1f')
+		}
+		b.WriteString(f)
+	}
+	b.WriteByte('\x00')
+	b.WriteString(strconv.FormatBool(compoundOnly))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(int(currentMask)))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(int(currentState)))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.FormatBool(explicitForbid))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(prefixCount))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(suffixCount))
+	return b.String()
 }
 
 func (a *dictConfig) normalizeFlags(flags string) string {
@@ -531,8 +552,8 @@ func flagContains(flags, want string, mode flagMode) bool {
 		}
 		return false
 	case flagLong:
-		if len(want) == 1 {
-			return strings.ContainsRune(flags, []rune(want)[0])
+		if len(want) != 2 {
+			return false
 		}
 		for i := 0; i+1 <= len(flags); i += 2 {
 			if flags[i:i+2] == want {

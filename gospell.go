@@ -238,9 +238,9 @@ func (s *GoSpell) Spell(word string) bool {
 		}
 	}
 
-	// Hunspell strips trailing periods and retries (abbreviation handling).
+	// Hunspell strips one trailing period and retries (abbreviation handling).
 	if strings.HasSuffix(word, ".") {
-		return s.Spell(strings.TrimRight(word, "."))
+		return s.Spell(strings.TrimSuffix(word, "."))
 	}
 	return false
 }
@@ -265,7 +265,7 @@ func (s *GoSpell) spellExact(word string) bool {
 			return false
 		}
 	}
-	if s.spellCompound(word) {
+	if s.spellCompound(word, false) {
 		return true
 	}
 	if s.spellSandhiCompound(word) {
@@ -360,11 +360,11 @@ func stripDicMorphFields(line string) string {
 	return line
 }
 
-// breakPatterns returns the effective BREAK patterns for a dictConfig.
+// computeBreakPatterns returns the effective BREAK patterns for a dictConfig.
 // When BREAK 0 is set, returns nil (disabled).
 // When explicit patterns are given they replace the hunspell defaults.
 // Otherwise the defaults ("-", "^-", "-$") are used.
-func breakPatterns(aff *dictConfig) []string {
+func computeBreakPatterns(aff *dictConfig) []string {
 	if !aff.BreakEnabled {
 		return nil
 	}
@@ -452,12 +452,12 @@ func compileCompoundRulePattern(rule string, groups map[string][]string, mode fl
 	return b.String(), nil
 }
 
-func (s *GoSpell) spellCompound(word string) bool {
+func (s *GoSpell) spellCompound(word string, skipTriple bool) bool {
 	runes := []rune(word)
 	if len(runes) < 2*s.compoundMin {
 		return false
 	}
-	parts, ok := s.spellCompoundParts(runes, caseStyle(word), true)
+	parts, ok := s.spellCompoundParts(runes, caseStyle(word), true, skipTriple)
 	if !ok {
 		return false
 	}
@@ -535,7 +535,7 @@ func (s *GoSpell) spellSandhiCompound(word string) bool {
 	return false
 }
 
-func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bool) ([]string, bool) {
+func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bool, skipTriple bool) ([]string, bool) {
 	if len(runes) < s.compoundMin {
 		return nil, false
 	}
@@ -558,7 +558,7 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		if s.checkCompoundCase && compoundBoundaryHasCase(prefix, suffix) {
 			continue
 		}
-		if s.checkCompoundTriple && compoundBoundaryHasTriple(prefix, suffix) {
+		if s.checkCompoundTriple && !skipTriple && compoundBoundaryHasTriple(prefix, suffix) {
 			continue
 		}
 		if s.compoundFinalPart(suffix, wholeStyle) {
@@ -567,7 +567,7 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		// Don't recurse into a suffix that is itself a blocked compound
 		// (e.g. "forbiddenroot" blocked by the "forbidden root" dic entry).
 		if _, blocked := s.blockedCompound[suffix]; !blocked {
-			if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false); ok {
+			if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false, skipTriple); ok {
 				return append([]string{prefix}, rest...), true
 			}
 		}
@@ -603,21 +603,13 @@ func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 	if compoundRuneLen(word) < s.compoundMin {
 		return false
 	}
-	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
-		if !ok {
-			return false
-		}
-		if s.forceUcaseWords != nil {
-			if _, ok := s.forceUcaseWords[word]; ok && wholeStyle == allLower {
-				return false
-			}
-		}
-		return true
-	}
 	if s.forceUcaseWords != nil {
 		if _, ok := s.forceUcaseWords[word]; ok && wholeStyle == allLower {
 			return false
 		}
+	}
+	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
+		return ok
 	}
 	return s.compoundSetContains(s.compoundEnd, word) ||
 		(s.compoundOnlyRoot != nil && func() bool {
@@ -823,15 +815,13 @@ func (s *GoSpell) spellSimplifiedTriple(word string) bool {
 		return false
 	}
 	runes := []rune(word)
-	s.checkCompoundTriple = false
-	defer func() { s.checkCompoundTriple = true }()
 	for i := 1; i <= len(runes); i++ {
 		c := runes[i-1]
 		extended := make([]rune, len(runes)+1)
 		copy(extended[:i], runes[:i])
 		extended[i] = c
 		copy(extended[i+1:], runes[i:])
-		if s.spellCompound(string(extended)) {
+		if s.spellCompound(string(extended), true) {
 			return true
 		}
 	}
@@ -1075,7 +1065,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		simplifiedTriple:    affix.SimplifiedTriple,
 		checkCompoundRep:    affix.CheckCompoundRep,
 		repReplacements:     affix.Replacements,
-		breakPatterns:       breakPatterns(affix),
+		breakPatterns:       computeBreakPatterns(affix),
 	}
 
 	var words []expandedWord

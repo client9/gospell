@@ -42,6 +42,7 @@ func (c *Checker) RemoveWordList(wl *WordList) {
 
 // Spell reports whether word is correctly spelled.
 func (c *Checker) Spell(word string) bool {
+	word = c.base.InputConversion([]byte(word))
 	for _, wl := range c.lists {
 		if wl.IsForbidden(word) {
 			return false

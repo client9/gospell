@@ -18,8 +18,7 @@ type Diff struct {
 func SpellFile(gs *gospell.Checker, raw []byte) []Diff {
 	out := []Diff{}
 
-	rawstring := gs.InputConversion(raw)
-	s := removeURL(rawstring)
+	s := removeURL(string(raw))
 	s = removePath(s)
 
 	for linenum, line := range strings.Split(s, "\n") {
