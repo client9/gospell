@@ -271,27 +271,31 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 	if err != nil {
 		return err
 	}
-	stateKey := a.expandStateKey(word, keys, compoundOnly, currentMask, currentState, explicitForbid)
-	if _, ok := seen[stateKey]; ok {
-		return nil
-	}
+	stateKey := a.expandStateKey(word, keys, compoundOnly, currentMask, currentState, explicitForbid, prefixCount, suffixCount)
+	_, alreadySeen := seen[stateKey]
 	seen[stateKey] = struct{}{}
-	for _, key := range keys {
-		if _, ok := a.compoundMap[key]; ok {
-			a.compoundMap[key] = append(a.compoundMap[key], word)
-		}
-		if key == a.ForceUcaseFlag {
-			if a.forceUcaseWords == nil {
-				a.forceUcaseWords = make(map[string]struct{})
+	if !alreadySeen {
+		for _, key := range keys {
+			if _, ok := a.compoundMap[key]; ok {
+				a.compoundMap[key] = append(a.compoundMap[key], word)
 			}
-			a.forceUcaseWords[word] = struct{}{}
+			if key == a.ForceUcaseFlag {
+				if a.forceUcaseWords == nil {
+					a.forceUcaseWords = make(map[string]struct{})
+				}
+				a.forceUcaseWords[word] = struct{}{}
+			}
+			if a.isCompoundOnlyFlag(key) {
+				compoundOnly = true
+				continue
+			}
 		}
-		if a.isCompoundOnlyFlag(key) {
-			compoundOnly = true
-			continue
-		}
+		a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
 	}
-	a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
+	// Always update the output record: the "false wins" needsAffix merge must
+	// run even on a repeated stateKey so that a path arriving with
+	// needsAffix=false (e.g. a zero-suffix applied to a NEEDAFFIX stem) can
+	// clear the flag set by an earlier needsAffix=true path.
 	if idx, ok := added[word]; !ok {
 		added[word] = len(*out)
 		*out = append(*out, expandedWord{
@@ -311,6 +315,9 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 		rec.compoundOnly = rec.compoundOnly || compoundOnly
 		// false wins: if any path reaches this form without needsAffix, it is valid
 		rec.needsAffix = rec.needsAffix && needsAffix
+	}
+	if alreadySeen {
+		return nil
 	}
 	c := compoundRules{a.CompoundFlag, a.CompoundPermitFlag, a.CompoundForbidFlag, a.CompoundOnly, a.NeedAffixFlag}
 	applyKeys := func(keys []string, wantType affixType) error {
@@ -368,10 +375,10 @@ func appendFlags(base, extra string, mode flagMode) string {
 	return mergeFlags(mode, base, extra)
 }
 
-func (a *dictConfig) expandStateKey(word string, flags []string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool) string {
+func (a *dictConfig) expandStateKey(word string, flags []string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, prefixCount, suffixCount int) string {
 	normalized := append([]string(nil), flags...)
 	sort.Strings(normalized)
-	return word + "\x00" + strings.Join(normalized, "\x1f") + "\x00" + strconv.FormatBool(compoundOnly) + "\x00" + strconv.Itoa(int(currentMask)) + "\x00" + strconv.Itoa(int(currentState)) + "\x00" + strconv.FormatBool(explicitForbid)
+	return word + "\x00" + strings.Join(normalized, "\x1f") + "\x00" + strconv.FormatBool(compoundOnly) + "\x00" + strconv.Itoa(int(currentMask)) + "\x00" + strconv.Itoa(int(currentState)) + "\x00" + strconv.FormatBool(explicitForbid) + "\x00" + strconv.Itoa(prefixCount) + "\x00" + strconv.Itoa(suffixCount)
 }
 
 func (a *dictConfig) normalizeFlags(flags string) string {
@@ -668,9 +675,10 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if len(parts) == 2 {
 				continue
 			}
-			if len(parts) != 3 {
-				return nil, fmt.Errorf("REP stanza had %d fields, expected 2", len(parts))
+			if len(parts) < 3 {
+				return nil, fmt.Errorf("REP stanza had %d fields, expected at least 3", len(parts))
 			}
+			// Extra fields beyond parts[2] are inline comments or morph annotations.
 			aff.Replacements = append(aff.Replacements, [2]string{parts[1], parts[2]})
 		case "COMPOUNDMIN":
 			if len(parts) != 2 {
@@ -782,7 +790,13 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if parts[0] == "SFX" {
 				atype = suffix
 			}
-			switch len(parts) {
+			// Clamp to 5: fields beyond position 5 are morphological annotations
+			// (e.g. "ip:un", "<DERIV>") and are ignored.
+			nParts := len(parts)
+			if nParts > 5 {
+				nParts = 5
+			}
+			switch nParts {
 			case 4:
 				cross, err := isCrossProduct(parts[2])
 				if err != nil {
@@ -831,7 +845,7 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 					matcher:   matcher,
 				})
 			default:
-				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], len(parts))
+				return nil, fmt.Errorf("%s stanza had %d fields, expected 4 or 5", parts[0], nParts)
 			}
 		case "CHECKCOMPOUNDCASE":
 			aff.CheckCompoundCase = true

@@ -187,6 +187,16 @@ func (s *GoSpell) Spell(word string) bool {
 	if s.isWordForbidden(word) {
 		return false
 	}
+	// Hunspell validates space-separated phrases by checking each token.
+	if strings.ContainsRune(word, ' ') {
+		parts := strings.Fields(word)
+		for _, p := range parts {
+			if !s.Spell(p) {
+				return false
+			}
+		}
+		return len(parts) > 0
+	}
 	if s.spellExact(word) {
 		return true
 	}
@@ -326,11 +336,21 @@ func (s *GoSpell) spellBreak(word string, depth int) bool {
 }
 
 // stripDicMorphFields removes hunspell morphological data fields from a raw
-// .dic entry line.  Morph fields have a two-lowercase-letter tag followed
-// immediately by ":" (e.g. ph:, st:, po:, is:).  Everything from the first
-// such field onward is dropped; the remaining tokens are rejoined with a
-// single space, preserving multi-word entries like "foo bar".
+// .dic entry line.
+//
+// Modern hunspell dic files use a TAB to separate the word+flags from any
+// morphological data (e.g. "drink/S\tpo:noun\tal:drank").  If a TAB is
+// present, everything from the first TAB onward is dropped.
+//
+// Older / space-only files (e.g. "foo ph:bar ph:baz") are handled by
+// scanning for the first field whose first three bytes match the
+// two-lowercase-letter-plus-colon pattern used by morph tags (ph:, st:,
+// po:, is:, …).  Remaining tokens are rejoined preserving multi-word
+// entries like "foo bar".
 func stripDicMorphFields(line string) string {
+	if idx := strings.IndexByte(line, '\t'); idx >= 0 {
+		return line[:idx]
+	}
 	fields := strings.Fields(line)
 	for i, f := range fields {
 		if len(f) >= 3 && f[0] >= 'a' && f[0] <= 'z' && f[1] >= 'a' && f[1] <= 'z' && f[2] == ':' {
