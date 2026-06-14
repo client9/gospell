@@ -743,55 +743,6 @@ func ngramRootScorePrepared(queryRunes []rune, queryBigrams, queryTrigrams []uin
 	return uniScore + biScore + triScore + leftCommonRunes(queryRunes, root.runes) - penalty
 }
 
-// ngramQuery holds pre-computed query data for ngramSuggestionScore so the
-// query n-gram maps are built once per Suggest call rather than per candidate.
-type ngramQuery struct {
-	lower    string
-	runes    []rune
-	trigrams map[string]int
-	bigrams  map[string]int
-}
-
-func newNgramQuery(query string) ngramQuery {
-	lower := strings.ToLower(query)
-	return ngramQuery{
-		lower:    lower,
-		runes:    []rune(lower),
-		trigrams: ngramCounts(lower, 3),
-		bigrams:  ngramCounts(lower, 2),
-	}
-}
-
-func ngramSuggestionScore(q ngramQuery, candidate string) int {
-	candidateLower := strings.ToLower(candidate)
-	cr := []rune(candidateLower)
-	score := ngramOverlapScorePrepared(q.trigrams, candidateLower, 3) * 5
-	score += ngramOverlapScorePrepared(q.bigrams, candidateLower, 2) * 2
-	score += leftCommonRunes(q.runes, cr) * 2
-	score += lcsRunes(q.runes, cr) * 2
-	score -= absIntLocal(len(q.runes) - len(cr))
-	return score
-}
-
-// ngramOverlapScorePrepared is like ngramOverlapScore but accepts a
-// pre-computed n-gram map for the query side.
-func ngramOverlapScorePrepared(queryNgrams map[string]int, candidate string, n int) int {
-	if n <= 0 || len(queryNgrams) == 0 {
-		return 0
-	}
-	score := 0
-	for gram, count := range ngramCounts(candidate, n) {
-		if ac := queryNgrams[gram]; ac > 0 {
-			if count < ac {
-				score += count
-			} else {
-				score += ac
-			}
-		}
-	}
-	return score
-}
-
 func sortedNGramHashes(word string, n int) []uint64 {
 	if n <= 0 {
 		return nil
@@ -885,25 +836,6 @@ func hashRunes(runes []rune) uint64 {
 	return h
 }
 
-func ngramCounts(word string, n int) map[string]int {
-	runes := []rune(word)
-	if len(runes) == 0 {
-		return nil
-	}
-	padded := make([]rune, 0, len(runes)+2)
-	padded = append(padded, '^')
-	padded = append(padded, runes...)
-	padded = append(padded, '$')
-	if len(padded) < n {
-		return map[string]int{string(padded): 1}
-	}
-	out := make(map[string]int, len(padded)-n+1)
-	for i := 0; i+n <= len(padded); i++ {
-		out[string(padded[i:i+n])]++
-	}
-	return out
-}
-
 func leftCommonRunes(a, b []rune) int {
 	n := len(a)
 	if len(b) < n {
@@ -915,28 +847,6 @@ func leftCommonRunes(a, b []rune) int {
 		}
 	}
 	return n
-}
-
-func lcsRunes(a, b []rune) int {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	prev := make([]int, len(b)+1)
-	curr := make([]int, len(b)+1)
-	for i := 1; i <= len(a); i++ {
-		for j := 1; j <= len(b); j++ {
-			if a[i-1] == b[j-1] {
-				curr[j] = prev[j-1] + 1
-			} else if prev[j] > curr[j-1] {
-				curr[j] = prev[j]
-			} else {
-				curr[j] = curr[j-1]
-			}
-		}
-		prev, curr = curr, prev
-		clear(curr)
-	}
-	return prev[len(b)]
 }
 
 var englishAlphabetRunes = []rune("abcdefghijklmnopqrstuvwxyz")
