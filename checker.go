@@ -72,6 +72,24 @@ func (c *Checker) Suggest(word string, limit int) ([]Suggestion, error) {
 		return nil, err
 	}
 
+	// Filter base suggestions against WordList forbidden entries.
+	if len(c.lists) > 0 {
+		filtered := results[:0]
+		for _, s := range results {
+			forbidden := false
+			for _, wl := range c.lists {
+				if wl.IsForbidden(s.Word) {
+					forbidden = true
+					break
+				}
+			}
+			if !forbidden {
+				filtered = append(filtered, s)
+			}
+		}
+		results = filtered
+	}
+
 	seen := make(map[string]struct{}, len(results))
 	for _, s := range results {
 		seen[s.Word] = struct{}{}

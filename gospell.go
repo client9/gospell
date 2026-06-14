@@ -869,21 +869,30 @@ func (s *GoSpell) spellSimplifiedTriple(word string) bool {
 }
 
 // compoundTypoMatchesDict reports whether word is one edit away from any
-// standalone dictionary entry of the same rune length. It is called from
-// spellCompound to suppress false-positive splits: when a 3+-part compound
-// parse succeeds but the whole word is itself just a misspelling of a single
-// real word (e.g. "teh" splits as "t"+"e"+"h" but is really a typo of "the"),
-// this check rejects the compound interpretation.
+// standalone dictionary entry. It is called from spellCompound to suppress
+// false-positive splits: when a 3+-part compound parse succeeds but the whole
+// word is itself just a misspelling of a single real word (e.g. "teh" splits
+// as "t"+"e"+"h" but is really a typo of "the"), this check rejects the
+// compound interpretation.
 //
-// Only same-rune-length words can be one edit away (a substitution edit
-// preserves length; insertion/deletion changes it by 1, but oneEditAway
-// also covers those). dictByRuneLen lets us skip the ~99% of the dictionary
-// that has the wrong rune count.
+// oneEditAway accepts pairs whose rune counts differ by at most 1, so we must
+// check the rl-1, rl, and rl+1 buckets to catch insertion and deletion edits.
+// dictByRuneLen lets us skip the ~97% of the dictionary outside those three
+// buckets. Reading a nil map is safe in Go, so this works correctly even for
+// GoSpell values constructed directly (without NewGoSpellReader).
 func (s *GoSpell) compoundTypoMatchesDict(word string) bool {
 	rl := compoundRuneLen(word)
-	// Reading a nil map is safe in Go and returns nil, so this works correctly
-	// even for GoSpell values constructed directly (without NewGoSpellReader).
+	for _, dictWord := range s.dictByRuneLen[rl-1] {
+		if oneEditAway(word, dictWord) {
+			return true
+		}
+	}
 	for _, dictWord := range s.dictByRuneLen[rl] {
+		if oneEditAway(word, dictWord) {
+			return true
+		}
+	}
+	for _, dictWord := range s.dictByRuneLen[rl+1] {
 		if oneEditAway(word, dictWord) {
 			return true
 		}

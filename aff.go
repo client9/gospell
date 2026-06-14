@@ -122,7 +122,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		}
 		if a.Type == prefix {
 			stripWord := word
-			if r.Strip != "" && strings.HasPrefix(word, r.Strip) {
+			if r.Strip != "" {
+				if !strings.HasPrefix(word, r.Strip) {
+					continue
+				}
 				stripWord = word[len(r.Strip):]
 			}
 			out = append(out, expandedWord{
@@ -135,7 +138,10 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 			})
 		} else {
 			stripWord := word
-			if r.Strip != "" && strings.HasSuffix(word, r.Strip) {
+			if r.Strip != "" {
+				if !strings.HasSuffix(word, r.Strip) {
+					continue
+				}
 				stripWord = word[:len(word)-len(r.Strip)]
 			}
 			out = append(out, expandedWord{

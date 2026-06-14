@@ -1927,6 +1927,71 @@ right
 	}
 }
 
+func TestAffixExpandSkipsMismatchedStrip(t *testing.T) {
+	// A suffix rule with strip="e" should only apply to words ending in "e".
+	// Words without that suffix must not get a spurious expanded form.
+	sampleAff := `SET UTF-8
+SFX X Y 1
+SFX X e ing .
+`
+	sampleDic := `2
+run/X
+make/X
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"run", true},    // base form valid
+		{"make", true},   // base form valid
+		{"making", true}, // strip "e", add "ing" — rule applies correctly
+		{"runing", false}, // strip "e" not present in "run" — rule must be skipped
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("AffixExpandSkipsMismatchedStrip %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
+func TestCompoundTypoGuardCatchesInsertionDeletion(t *testing.T) {
+	// compoundTypoMatchesDict must check rl-1 and rl+1 buckets so that
+	// insertion/deletion edits are caught, not just substitutions.
+	// "abc" (3 runes) splits as "a"+"b"+"c" — a valid 3-part compound.
+	// "abcd" (4 runes) is a standalone dictionary word.
+	// Because "abc" is one deletion away from "abcd", the compound parse
+	// should be rejected.
+	sampleAff := `SET UTF-8
+COMPOUNDFLAG A
+COMPOUNDMIN 1
+`
+	sampleDic := `4
+a/A
+b/A
+c/A
+abcd
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"abcd", true},  // standalone word
+		{"abc", false},  // typo of "abcd" — compound parse must be suppressed
+		{"abca", false}, // not a typo of any dict word, but also not valid
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CompoundTypoGuard %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestMergeFlagsFastPath(t *testing.T) {
 	// Already-normalized single-part inputs must be returned unchanged (fast path).
 	for _, tt := range []struct {

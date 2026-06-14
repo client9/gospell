@@ -168,6 +168,36 @@ func TestCheckerSuggestSkipsForbidden(t *testing.T) {
 	}
 }
 
+func TestCheckerSuggestFiltersBaseDictForbidden(t *testing.T) {
+	// A word in the base dictionary that is forbidden by an active WordList
+	// must not appear in Suggest results.
+	gs, err := NewGoSpellReader(
+		strings.NewReader(""),
+		strings.NewReader("2\ncolour\ncolor\n"),
+	)
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	suggester := NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 3})
+	if err := gs.SetSuggester(suggester); err != nil {
+		t.Fatalf("SetSuggester: %v", err)
+	}
+	c := NewChecker(gs)
+	wl := &WordList{}
+	wl.Forbid("colour")
+	c.AddWordList(wl)
+
+	suggestions, err := c.Suggest("colur", 10)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	for _, s := range suggestions {
+		if s.Word == "colour" {
+			t.Errorf("Suggest returned base-dict word %q forbidden by WordList", s.Word)
+		}
+	}
+}
+
 func TestCheckerRemoveWordList(t *testing.T) {
 	c := NewChecker(makeTestGoSpell(t))
 	wl := &WordList{}
