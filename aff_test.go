@@ -561,6 +561,57 @@ PFX 3 0 un .
 	}
 }
 
+// TestSuffixChainRequiresExplicitOutFlags verifies that a second suffix is only
+// allowed when the first suffix rule explicitly emits the second flag via
+// OutFlags (/xxx notation). A suffix rule with empty OutFlags must NOT
+// propagate the root's flags for further chaining — otherwise inherited root
+// flags would produce spurious forms like "greatsly" from "great/SY" where
+// SFX S has no OutFlags but the root carries Y.
+func TestSuffixChainRequiresExplicitOutFlags(t *testing.T) {
+	// SFX S has no OutFlags → "greats" must not chain to SFX Y.
+	// SFX A has OutFlags "/Y"  → "goods"  must chain to SFX Y producing "goodsly".
+	sampleAff := `
+SET UTF-8
+
+SFX S Y 1
+SFX S 0 s .
+
+SFX A Y 1
+SFX A 0 s/Y .
+
+SFX Y Y 1
+SFX Y 0 ly .
+`
+	aff, err := newDictConfig(strings.NewReader(sampleAff))
+	if err != nil {
+		t.Fatalf("newDictConfig: %v", err)
+	}
+
+	// "great/SY": S (no OutFlags) must not permit Y on "greats".
+	// Expected forms: great, greats, greatly — NOT greatsly.
+	got, err := aff.expand("great/SY", nil)
+	if err != nil {
+		t.Fatalf("expand great/SY: %v", err)
+	}
+	sort.Strings(got)
+	want := []string{"great", "greatly", "greats"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("great/SY: got %v want %v", got, want)
+	}
+
+	// "good/AY": A (OutFlags=Y) must permit Y on "goods".
+	// Expected forms: good, goods, goodsly, goodly.
+	got, err = aff.expand("good/AY", nil)
+	if err != nil {
+		t.Fatalf("expand good/AY: %v", err)
+	}
+	sort.Strings(got)
+	want = []string{"good", "goodly", "goods", "goodsly"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("good/AY: got %v want %v", got, want)
+	}
+}
+
 func TestCompoundForbidFlags(t *testing.T) {
 	sampleAff := `
 SET UTF-8

@@ -43,11 +43,17 @@ type compoundRules struct {
 type expandedWord struct {
 	word         string
 	flags        string
-	mask         compoundMask
-	state        affixState
-	forbid       bool
-	compoundOnly bool
-	needsAffix   bool // true if this form has an unresolved NEEDAFFIX
+	// explicitFlags holds only the OutFlags emitted by the affix rule that
+	// generated this form. When chaining a second suffix, only these flags
+	// are considered — root flags are not propagated — so that rules without
+	// explicit OutFlags (e.g. en_US "SFX S 0 s .") do not permit spurious
+	// double-suffix forms like "greatsly".
+	explicitFlags string
+	mask          compoundMask
+	state         affixState
+	forbid        bool
+	compoundOnly  bool
+	needsAffix    bool // true if this form has an unresolved NEEDAFFIX
 }
 
 type compoundMask uint8
@@ -129,12 +135,13 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 				stripWord = word[len(r.Strip):]
 			}
 			out = append(out, expandedWord{
-				word:       r.AffixText + stripWord,
-				flags:      appendFlags(flags, r.OutFlags, mode),
-				mask:       mask,
-				state:      outState,
-				forbid:     forbid,
-				needsAffix: needsAffix,
+				word:          r.AffixText + stripWord,
+				flags:         appendFlags(flags, r.OutFlags, mode),
+				explicitFlags: r.OutFlags,
+				mask:          mask,
+				state:         outState,
+				forbid:        forbid,
+				needsAffix:    needsAffix,
 			})
 		} else {
 			stripWord := word
@@ -145,12 +152,13 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 				stripWord = word[:len(word)-len(r.Strip)]
 			}
 			out = append(out, expandedWord{
-				word:       stripWord + r.AffixText,
-				flags:      appendFlags(flags, r.OutFlags, mode),
-				mask:       mask,
-				state:      outState,
-				forbid:     forbid,
-				needsAffix: needsAffix,
+				word:          stripWord + r.AffixText,
+				flags:         appendFlags(flags, r.OutFlags, mode),
+				explicitFlags: r.OutFlags,
+				mask:          mask,
+				state:         outState,
+				forbid:        forbid,
+				needsAffix:    needsAffix,
 			})
 		}
 	}
@@ -266,13 +274,13 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 	added := make(map[string]int)
 	seen := make(map[string]struct{})
 	var out []expandedWord
-	if err := a.expandStateRecords(word, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
+	if err := a.expandStateRecords(word, keyString, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
+func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
 	flags = a.normalizeFlags(flags)
 	keys, err := a.splitFlags(flags)
 	if err != nil {
@@ -343,6 +351,11 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 				if suffixCount >= 2 {
 					continue
 				}
+				// When chaining a second suffix, only allow flags explicitly emitted
+				// by the first suffix's rule, not inherited root flags.
+				if suffixCount >= 1 && !flagContains(suffixChainFlags, key, a.flagMode) {
+					continue
+				}
 				nextSuffixCount++
 			}
 			if _, ok := used[key]; ok {
@@ -362,7 +375,11 @@ func (a *dictConfig) expandStateRecords(word, flags string, compoundOnly bool, c
 			for _, ew := range expanded {
 				nextOnly := compoundOnly
 				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
-				if err := a.expandStateRecords(ew.word, ew.flags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
+				nextSuffixChainFlags := suffixChainFlags
+				if nextSuffixCount > suffixCount {
+					nextSuffixChainFlags = ew.explicitFlags
+				}
+				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
 					return err
 				}
 			}

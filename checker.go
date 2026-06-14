@@ -2,8 +2,6 @@ package gospell
 
 import (
 	"sort"
-
-	"github.com/agnivade/levenshtein"
 )
 
 // Checker combines a base GoSpell dictionary with zero or more WordLists.
@@ -114,16 +112,13 @@ func (c *Checker) Suggest(word string, limit int) ([]Suggestion, error) {
 				continue
 			}
 			seen[w] = struct{}{}
-			dist := levenshtein.ComputeDistance(word, w)
+			dist := osaDistance(word, w)
 			results = append(results, Suggestion{Word: w, Score: dist})
 		}
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score < results[j].Score
-		}
-		return results[i].Word < results[j].Word
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].Score < results[j].Score
 	})
 	if len(results) > limit {
 		results = results[:limit]

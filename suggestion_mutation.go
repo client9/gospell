@@ -7,7 +7,6 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/agnivade/levenshtein"
 )
 
 // MutationOptions controls the query-time mutation suggester.
@@ -23,6 +22,7 @@ type MutationSuggester struct {
 	src        SuggestionSource
 	spell      func(string) bool
 	tryChars   []rune
+	repRules   [][2]string
 	ngramOnce  sync.Once
 	ngramRoots []mutationNGramRoot
 	opts       MutationOptions
@@ -36,7 +36,7 @@ func NewMutationSuggester(opts MutationOptions) *MutationSuggester {
 		opts.CandidateCap = 256
 	}
 	if opts.NGramRootCap <= 0 {
-		opts.NGramRootCap = 64
+		opts.NGramRootCap = 100
 	}
 	return &MutationSuggester{opts: opts}
 }
@@ -51,10 +51,20 @@ func (s *MutationSuggester) Init(src SuggestionSource) error {
 	if spellSrc, ok := src.(interface{ Spell(string) bool }); ok {
 		s.spell = spellSrc.Spell
 	}
-	if gs, ok := src.(*GoSpell); ok && gs.affix != nil && gs.affix.TryChars != "" {
-		s.tryChars = uniqueLowerRunes(gs.affix.TryChars)
+	if gs, ok := src.(*GoSpell); ok && gs.affix != nil {
+		if gs.affix.TryChars != "" {
+			s.tryChars = uniqueLowerRunes(gs.affix.TryChars)
+		} else {
+			s.tryChars = nil
+		}
+		if len(gs.repReplacements) > 0 {
+			s.repRules = append([][2]string(nil), gs.repReplacements...)
+		} else {
+			s.repRules = nil
+		}
 	} else {
 		s.tryChars = nil
+		s.repRules = nil
 	}
 	s.ngramOnce = sync.Once{}
 	s.ngramRoots = nil
@@ -68,26 +78,53 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 		return nil, nil
 	}
 
-	// penalty: 0 = transposition/keyboard neighbor, 1 = generic alphabet, 2 = deletion.
+	// penalty: 0=swap/REP, 1=keyboard-sub, 2=delete, 3=insert, 4=generic-sub.
 	best := make(map[string]int, 32)
-	for _, variant := range mutationCaseVariants(word) {
-		s.collectCandidates(variant, func(candidate string, penalty int) bool {
-			if candidate == "" || candidate == word {
-				return true
+
+	// REP rules are highest priority (matches hunspell's SPELL_BEST_SUG behavior):
+	// apply them first, and skip the character-mutation pass if any hit is found.
+	for _, rule := range s.repRules {
+		from, to := rule[0], rule[1]
+		if from == "" || to == "" {
+			continue
+		}
+		start := 0
+		for start < len(word) {
+			idx := strings.Index(word[start:], from)
+			if idx < 0 {
+				break
 			}
-			if existing, ok := best[candidate]; ok && existing <= penalty {
-				return true
+			abs := start + idx
+			candidate := word[:abs] + to + word[abs+len(from):]
+			if candidate != word && s.spell(candidate) {
+				if existing, ok := best[candidate]; !ok || existing > 0 {
+					best[candidate] = 0
+				}
 			}
-			if !s.spell(candidate) {
-				return true
+			start = abs + 1
+		}
+	}
+
+	if len(best) == 0 {
+		for _, variant := range mutationCaseVariants(word) {
+			s.collectCandidates(variant, func(candidate string, penalty int) bool {
+				if candidate == "" || candidate == word {
+					return true
+				}
+				if existing, ok := best[candidate]; ok && existing <= penalty {
+					return true
+				}
+				if !s.spell(candidate) {
+					return true
+				}
+				best[candidate] = penalty
+				return len(best) < s.opts.CandidateCap
+			})
+			// Stop early across variants once cap is reached; the callback already
+			// stops collectCandidates internally, but we also skip remaining variants.
+			if len(best) >= s.opts.CandidateCap {
+				break
 			}
-			best[candidate] = penalty
-			return len(best) < s.opts.CandidateCap
-		})
-		// Stop early across variants once cap is reached; the callback already
-		// stops collectCandidates internally, but we also skip remaining variants.
-		if len(best) >= s.opts.CandidateCap {
-			break
 		}
 	}
 
@@ -103,17 +140,20 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	best = dedupCaseVariants(word, best)
 
 	type scored struct {
-		word    string
-		dist    int
-		penalty int
+		word       string
+		dist       int
+		penalty    int
+		leftCommon int
 	}
 
+	queryRunes := []rune(strings.ToLower(word))
 	results := make([]scored, 0, len(best))
 	for candidate, penalty := range best {
 		results = append(results, scored{
-			word:    candidate,
-			dist:    levenshtein.ComputeDistance(word, candidate),
-			penalty: penalty,
+			word:       candidate,
+			dist:       osaDistance(word, candidate),
+			penalty:    penalty,
+			leftCommon: leftCommonRunes(queryRunes, []rune(strings.ToLower(candidate))),
 		})
 	}
 
@@ -123,6 +163,9 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 		}
 		if results[i].penalty != results[j].penalty {
 			return results[i].penalty < results[j].penalty
+		}
+		if results[i].leftCommon != results[j].leftCommon {
+			return results[i].leftCommon > results[j].leftCommon
 		}
 		return results[i].word < results[j].word
 	})
@@ -152,7 +195,10 @@ func (s *MutationSuggester) ngramSuggest(word string, limit int) ([]Suggestion, 
 		return nil, nil
 	}
 
-	queryPrep := newNgramQuery(word)
+	queryLower := strings.ToLower(word)
+	queryRunes := []rune(queryLower)
+	queryBigrams := sortedNGramHashes(queryLower, 2)
+	queryTrigrams := sortedNGramHashes(queryLower, 3)
 
 	type scored struct {
 		word  string
@@ -180,10 +226,11 @@ func (s *MutationSuggester) ngramSuggest(word string, limit int) ([]Suggestion, 
 				if !s.spell(candidate) {
 					continue
 				}
-				score := ngramSuggestionScore(queryPrep, candidate)
+				candidateRoot := makeMutationNGramRoot(candidate, strings.ToLower(candidate))
+				score := ngramRootScorePrepared(queryRunes, queryBigrams, queryTrigrams, candidateRoot)
 				best[candidate] = scored{
 					word:  candidate,
-					dist:  levenshtein.ComputeDistance(word, candidate),
+					dist:  osaDistance(word, candidate),
 					score: score,
 				}
 				if len(best) >= s.opts.CandidateCap {
@@ -233,22 +280,84 @@ type ngramRootCandidate struct {
 type mutationNGramRoot struct {
 	word     string
 	runes    []rune
+	bigrams  []uint64
 	trigrams []uint64
+}
+
+func makeMutationNGramRoot(word, lower string) mutationNGramRoot {
+	return mutationNGramRoot{
+		word:     word,
+		runes:    []rune(lower),
+		bigrams:  sortedNGramHashes(lower, 2),
+		trigrams: sortedNGramHashes(lower, 3),
+	}
 }
 
 func buildMutationNGramRoots(gs *GoSpell) []mutationNGramRoot {
 	roots := make([]mutationNGramRoot, 0, len(gs.entriesByRoot))
+	seen := make(map[string]struct{}, len(gs.entriesByRoot))
+
 	for root, entries := range gs.entriesByRoot {
 		if !anyEntrySuggestable(entries, gs.affix) {
 			continue
 		}
 		lower := strings.ToLower(root)
-		roots = append(roots, mutationNGramRoot{
-			word:     root,
-			runes:    []rune(lower),
-			trigrams: sortedNGramHashes(lower, 3),
-		})
+		seen[lower] = struct{}{}
+		roots = append(roots, makeMutationNGramRoot(root, lower))
 	}
+
+	// Also index prefix-derived surface forms as virtual roots.
+	// Words like "disappoint" are not roots — they're derived from root "appoint"
+	// via a prefix rule (flag E → "dis"). Without this, the n-gram index only
+	// contains "appoint", which scores poorly against "dissapoint" because the
+	// leading characters differ. By indexing the surface form "disappoint"
+	// directly (pointing back to root "appoint" for expansion), the n-gram pass
+	// can find it with a high score.
+	if gs.affix != nil {
+		for flagKey, af := range gs.affix.AffixMap {
+			if af.Type != prefix {
+				continue
+			}
+			for root, entries := range gs.entriesByRoot {
+				if !anyEntrySuggestable(entries, gs.affix) {
+					continue
+				}
+				hasFlag := false
+				for _, entry := range entries {
+					if hasFlagToken(entry.rawFlags, flagKey) {
+						hasFlag = true
+						break
+					}
+				}
+				if !hasFlag {
+					continue
+				}
+				for _, r := range af.Rules {
+					if r.AffixText == "" {
+						continue
+					}
+					if r.matcher != nil && !r.matcher.MatchString(root) {
+						continue
+					}
+					stemBase := root
+					if r.Strip != "" {
+						if !strings.HasPrefix(root, r.Strip) {
+							continue
+						}
+						stemBase = root[len(r.Strip):]
+					}
+					surface := r.AffixText + stemBase
+					lower := strings.ToLower(surface)
+					if _, ok := seen[lower]; ok {
+						continue
+					}
+					seen[lower] = struct{}{}
+					roots = append(roots, makeMutationNGramRoot(root, lower))
+				}
+			}
+		}
+	}
+
 	return roots
 }
 
@@ -259,6 +368,7 @@ func (s *MutationSuggester) topNGramRoots(gs *GoSpell, word string) []ngramRootC
 	roots := make([]ngramRootCandidate, 0, s.opts.NGramRootCap)
 	queryLower := strings.ToLower(word)
 	queryRunes := []rune(queryLower)
+	queryBigrams := sortedNGramHashes(queryLower, 2)
 	queryTrigrams := sortedNGramHashes(queryLower, 3)
 	add := func(candidate ngramRootCandidate) {
 		if candidate.score <= 0 {
@@ -289,7 +399,7 @@ func (s *MutationSuggester) topNGramRoots(gs *GoSpell, word string) []ngramRootC
 		}
 		add(ngramRootCandidate{
 			word:  root.word,
-			score: ngramRootScorePrepared(queryRunes, queryTrigrams, root),
+			score: ngramRootScorePrepared(queryRunes, queryBigrams, queryTrigrams, root),
 		})
 	}
 	return roots
@@ -313,7 +423,8 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		return visit(candidate, penalty)
 	}
 
-	// 1. Adjacent transpositions (penalty 0 — most natural single-key error).
+	// 1. swapchar: adjacent transpositions (penalty 0).
+	// Lowest penalty — a transposition is the most likely single-keystroke error.
 	swapBuf := append([]rune(nil), runes...)
 	for i := 0; i+1 < len(runes); i++ {
 		if runes[i] == runes[i+1] {
@@ -326,21 +437,41 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		}
 	}
 
-	// 2. Keyboard-biased substitutions (penalty 0) then generic alphabet (penalty 1).
-	subBuf := append([]rune(nil), runes...)
-	for i, r := range runes {
-		neighbors := qwertyNeighborsForRune(r)
-		for _, repl := range neighbors {
-			copy(subBuf, runes)
-			subBuf[i] = preserveRuneCase(r, repl)
-			if !emit(string(subBuf), 0) {
-				return
+	// 1b. movechars: rotate a substring [p,q+1) to move one character to another
+	// position (hunspell's movechar). Covers transpositions beyond adjacent pairs
+	// (e.g. "greatful" → "grateful" by rotating "eat"→"ate"). Skip q-p==1 for
+	// words ≥ 6 runes to avoid duplicating swapchar.
+	if len(runes) > 2 {
+		moveBuf := make([]rune, len(runes))
+		for p := 0; p < len(runes); p++ {
+			for q := p + 1; q < len(runes); q++ {
+				if len(runes) >= 6 && q-p == 1 {
+					continue
+				}
+				// Move runes[p] to position q (left-rotate [p..q]).
+				copy(moveBuf, runes)
+				r := moveBuf[p]
+				copy(moveBuf[p:], moveBuf[p+1:q+1])
+				moveBuf[q] = r
+				if !emit(string(moveBuf), 3) {
+					return
+				}
+				// Move runes[q] to position p (right-rotate [p..q]).
+				copy(moveBuf, runes)
+				r = moveBuf[q]
+				copy(moveBuf[p+1:q+1], moveBuf[p:q])
+				moveBuf[p] = r
+				if !emit(string(moveBuf), 3) {
+					return
+				}
 			}
 		}
-		for _, repl := range s.replacementRunes() {
-			if unicode.ToLower(r) == repl {
-				continue
-			}
+	}
+
+	// 2. badcharkey: keyboard-neighbor substitutions (penalty 1).
+	subBuf := append([]rune(nil), runes...)
+	for i, r := range runes {
+		for _, repl := range qwertyNeighborsForRune(r) {
 			copy(subBuf, runes)
 			subBuf[i] = preserveRuneCase(r, repl)
 			if !emit(string(subBuf), 1) {
@@ -349,35 +480,49 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 		}
 	}
 
-	// 3. Keyboard-biased insertions (penalty 0) then generic alphabet (penalty 1).
-	insertBuf := make([]rune, len(runes)+1)
-	for i := 0; i <= len(runes); i++ {
-		neighbors := qwertyInsertionNeighbors(runes, i)
-		for _, repl := range neighbors {
-			candidate := insertRuneInto(insertBuf, runes, i, repl)
-			if !emit(candidate, 0) {
-				return
-			}
-		}
-		for _, repl := range s.replacementRunes() {
-			candidate := insertRuneInto(insertBuf, runes, i, preserveInsertionCase(runes, i, repl))
-			if !emit(candidate, 1) {
+	// 3. extrachar: deletions (penalty 2).
+	// Hunspell ranks extrachar (#7) above forgotchar (#8) and badchar (#10),
+	// so deletions are more likely to be the intended correction than insertions
+	// or generic substitutions.
+	if len(runes) > 1 {
+		deleteBuf := make([]rune, len(runes)-1)
+		for i := range runes {
+			copy(deleteBuf, runes[:i])
+			copy(deleteBuf[i:], runes[i+1:])
+			if !emit(string(deleteBuf), 2) {
 				return
 			}
 		}
 	}
 
-	// 4. Deletions last (penalty 2 — least likely to be the intended correction).
-	if len(runes) <= 1 {
-		return
+	// 4. forgotchar: insertions — keyboard-biased (penalty 3) then generic alphabet (penalty 3).
+	insertBuf := make([]rune, len(runes)+1)
+	for i := 0; i <= len(runes); i++ {
+		for _, repl := range qwertyInsertionNeighbors(runes, i) {
+			candidate := insertRuneInto(insertBuf, runes, i, repl)
+			if !emit(candidate, 3) {
+				return
+			}
+		}
+		for _, repl := range s.replacementRunes() {
+			candidate := insertRuneInto(insertBuf, runes, i, preserveInsertionCase(runes, i, repl))
+			if !emit(candidate, 3) {
+				return
+			}
+		}
 	}
-	deleteBuf := make([]rune, len(runes)-1)
-	for i := range runes {
-		copy(deleteBuf, runes[:i])
-		copy(deleteBuf[i:], runes[i+1:])
-		candidate := string(deleteBuf)
-		if !emit(candidate, 2) {
-			return
+
+	// 5. badchar: generic alphabet substitutions (penalty 4).
+	for i, r := range runes {
+		for _, repl := range s.replacementRunes() {
+			if unicode.ToLower(r) == repl {
+				continue
+			}
+			copy(subBuf, runes)
+			subBuf[i] = preserveRuneCase(r, repl)
+			if !emit(string(subBuf), 4) {
+				return
+			}
 		}
 	}
 }
@@ -565,13 +710,38 @@ func entrySuggestable(flags []string, affix *dictConfig) bool {
 		!hasFlagToken(flags, affix.CompoundOnly)
 }
 
-func ngramRootScorePrepared(queryRunes []rune, queryTrigrams []uint64, root mutationNGramRoot) int {
+// ngramRootScorePrepared scores a root candidate against a query using the same
+// formula as hunspell's root-selection phase: sum of 1-gram, 2-gram, and 3-gram
+// overlaps plus the length of the left-common substring. This mirrors hunspell's
+// ngram(3, query, candidate, NGRAM_LONGER_WORSE) + leftcommonsubstring call.
+//
+// The 1-gram term counts query positions where the character appears anywhere in
+// the root, giving anagram-like misspellings ("abcense"→"absence") a fair score
+// even when no trigrams align. The length-difference penalty matches NGRAM_LONGER_WORSE.
+func ngramRootScorePrepared(queryRunes []rune, queryBigrams, queryTrigrams []uint64, root mutationNGramRoot) int {
 	if absIntLocal(len(queryRunes)-len(root.runes)) > 5 {
 		return 0
 	}
-	score := ngramOverlapHashes(queryTrigrams, root.trigrams)*4 + leftCommonRunes(queryRunes, root.runes)*2
-	score -= absIntLocal(len(queryRunes) - len(root.runes))
-	return score
+	// j=1: count query positions whose rune appears anywhere in the root.
+	uniScore := 0
+	for _, qr := range queryRunes {
+		for _, rr := range root.runes {
+			if qr == rr {
+				uniScore++
+				break
+			}
+		}
+	}
+	// j=2 and j=3: n-gram overlap using precomputed sorted hash arrays.
+	biScore := ngramOverlapHashes(queryBigrams, root.bigrams)
+	triScore := ngramOverlapHashes(queryTrigrams, root.trigrams)
+
+	// NGRAM_LONGER_WORSE: penalise candidates longer than the query.
+	penalty := len(root.runes) - len(queryRunes) - 2
+	if penalty < 0 {
+		penalty = 0
+	}
+	return uniScore + biScore + triScore + leftCommonRunes(queryRunes, root.runes) - penalty
 }
 
 // ngramQuery holds pre-computed query data for ngramSuggestionScore so the
@@ -661,6 +831,50 @@ func ngramOverlapHashes(a, b []uint64) int {
 		}
 	}
 	return score
+}
+
+// osaDistance computes the Optimal String Alignment distance between a and b.
+// Unlike standard Levenshtein, adjacent transpositions cost 1, so
+// osaDistance("thier", "their") == 1 instead of 2.
+func osaDistance(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	la, lb := len(ar), len(br)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	// d[i][j] = OSA distance between ar[:i] and br[:j]
+	d := make([][]int, la+1)
+	for i := range d {
+		d[i] = make([]int, lb+1)
+		d[i][0] = i
+	}
+	for j := 1; j <= lb; j++ {
+		d[0][j] = j
+	}
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if ar[i-1] == br[j-1] {
+				cost = 0
+			}
+			d[i][j] = d[i-1][j-1] + cost
+			if d[i-1][j]+1 < d[i][j] {
+				d[i][j] = d[i-1][j] + 1
+			}
+			if d[i][j-1]+1 < d[i][j] {
+				d[i][j] = d[i][j-1] + 1
+			}
+			if i > 1 && j > 1 && ar[i-1] == br[j-2] && ar[i-2] == br[j-1] {
+				if d[i-2][j-2]+1 < d[i][j] {
+					d[i][j] = d[i-2][j-2] + 1
+				}
+			}
+		}
+	}
+	return d[la][lb]
 }
 
 func hashRunes(runes []rune) uint64 {
