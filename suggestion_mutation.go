@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/agnivade/levenshtein"
@@ -22,8 +23,8 @@ type MutationSuggester struct {
 	src        SuggestionSource
 	spell      func(string) bool
 	tryChars   []rune
+	ngramOnce  sync.Once
 	ngramRoots []mutationNGramRoot
-	ngramReady bool
 	opts       MutationOptions
 }
 
@@ -55,8 +56,8 @@ func (s *MutationSuggester) Init(src SuggestionSource) error {
 	} else {
 		s.tryChars = nil
 	}
+	s.ngramOnce = sync.Once{}
 	s.ngramRoots = nil
-	s.ngramReady = false
 	return nil
 }
 
@@ -144,6 +145,8 @@ func (s *MutationSuggester) ngramSuggest(word string, limit int) ([]Suggestion, 
 		return nil, nil
 	}
 
+	queryPrep := newNgramQuery(word)
+
 	type scored struct {
 		word  string
 		dist  int
@@ -170,7 +173,7 @@ func (s *MutationSuggester) ngramSuggest(word string, limit int) ([]Suggestion, 
 				if !s.spell(candidate) {
 					continue
 				}
-				score := ngramSuggestionScore(word, candidate)
+				score := ngramSuggestionScore(queryPrep, candidate)
 				best[candidate] = scored{
 					word:  candidate,
 					dist:  levenshtein.ComputeDistance(word, candidate),
@@ -243,10 +246,9 @@ func buildMutationNGramRoots(gs *GoSpell) []mutationNGramRoot {
 }
 
 func (s *MutationSuggester) topNGramRoots(gs *GoSpell, word string) []ngramRootCandidate {
-	if !s.ngramReady {
+	s.ngramOnce.Do(func() {
 		s.ngramRoots = buildMutationNGramRoots(gs)
-		s.ngramReady = true
-	}
+	})
 	roots := make([]ngramRootCandidate, 0, s.opts.NGramRootCap)
 	queryLower := strings.ToLower(word)
 	queryRunes := []rune(queryLower)
@@ -500,16 +502,52 @@ func ngramRootScorePrepared(queryRunes []rune, queryTrigrams []uint64, root muta
 	return score
 }
 
-func ngramSuggestionScore(query, candidate string) int {
-	query = strings.ToLower(query)
-	candidate = strings.ToLower(candidate)
-	qr := []rune(query)
-	cr := []rune(candidate)
-	score := ngramOverlapScore(query, candidate, 3) * 5
-	score += ngramOverlapScore(query, candidate, 2) * 2
-	score += leftCommonRunes(qr, cr) * 2
-	score += lcsRunes(qr, cr) * 2
-	score -= absIntLocal(len(qr) - len(cr))
+// ngramQuery holds pre-computed query data for ngramSuggestionScore so the
+// query n-gram maps are built once per Suggest call rather than per candidate.
+type ngramQuery struct {
+	lower    string
+	runes    []rune
+	trigrams map[string]int
+	bigrams  map[string]int
+}
+
+func newNgramQuery(query string) ngramQuery {
+	lower := strings.ToLower(query)
+	return ngramQuery{
+		lower:    lower,
+		runes:    []rune(lower),
+		trigrams: ngramCounts(lower, 3),
+		bigrams:  ngramCounts(lower, 2),
+	}
+}
+
+func ngramSuggestionScore(q ngramQuery, candidate string) int {
+	candidateLower := strings.ToLower(candidate)
+	cr := []rune(candidateLower)
+	score := ngramOverlapScorePrepared(q.trigrams, candidateLower, 3) * 5
+	score += ngramOverlapScorePrepared(q.bigrams, candidateLower, 2) * 2
+	score += leftCommonRunes(q.runes, cr) * 2
+	score += lcsRunes(q.runes, cr) * 2
+	score -= absIntLocal(len(q.runes) - len(cr))
+	return score
+}
+
+// ngramOverlapScorePrepared is like ngramOverlapScore but accepts a
+// pre-computed n-gram map for the query side.
+func ngramOverlapScorePrepared(queryNgrams map[string]int, candidate string, n int) int {
+	if n <= 0 || len(queryNgrams) == 0 {
+		return 0
+	}
+	score := 0
+	for gram, count := range ngramCounts(candidate, n) {
+		if ac := queryNgrams[gram]; ac > 0 {
+			if count < ac {
+				score += count
+			} else {
+				score += ac
+			}
+		}
+	}
 	return score
 }
 
@@ -560,27 +598,6 @@ func hashRunes(runes []rune) uint64 {
 		h *= 1099511628211
 	}
 	return h
-}
-
-func ngramOverlapScore(a, b string, n int) int {
-	if n <= 0 {
-		return 0
-	}
-	agram := ngramCounts(a, n)
-	if len(agram) == 0 {
-		return 0
-	}
-	score := 0
-	for gram, count := range ngramCounts(b, n) {
-		if ac := agram[gram]; ac > 0 {
-			if count < ac {
-				score += count
-			} else {
-				score += ac
-			}
-		}
-	}
-	return score
 }
 
 func ngramCounts(word string, n int) map[string]int {
