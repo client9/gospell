@@ -187,6 +187,70 @@ London
 	}
 }
 
+func TestSuggestREPRules(t *testing.T) {
+	// REP rules should produce suggestions before the mutation pass, and a REP
+	// hit should suppress mutation candidates (matching hunspell SPELL_BEST_SUG).
+	aff := strings.NewReader(`SET UTF-8
+TRY esianrtolcdugmphbyfvkwz
+REP que queue
+`)
+	dic := strings.NewReader(`3
+queue
+cue
+due
+`)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := gs.Suggest("que", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one suggestion")
+	}
+	if got[0].Word != "queue" {
+		t.Fatalf("want top suggestion %q (from REP rule), got %q; all: %v", "queue", got[0].Word, got)
+	}
+	// REP hit should suppress mutation candidates like "cue" and "due".
+	for _, s := range got[1:] {
+		t.Errorf("unexpected mutation candidate %q (REP hit should suppress mutation pass)", s.Word)
+	}
+}
+
+func TestSuggestREPUnderscoreAsSpace(t *testing.T) {
+	// REP rules use _ to encode spaces (hunspell replist convention).
+	// "REP alot a_lot" should suggest "a lot" (two words), not "a_lot".
+	aff := strings.NewReader(`SET UTF-8
+TRY esianrtolcdugmphbyfvkwz
+REP alot a_lot
+`)
+	dic := strings.NewReader(`3
+a
+lot
+allot
+`)
+	gs, err := NewGoSpellReader(aff, dic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := gs.Suggest("alot", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one suggestion")
+	}
+	if got[0].Word != "a lot" {
+		t.Fatalf("want top suggestion %q (from REP a_lot), got %q; all: %v", "a lot", got[0].Word, got)
+	}
+	// REP hit should suppress mutation candidates like "allot".
+	for _, s := range got[1:] {
+		t.Errorf("unexpected mutation candidate %q (REP hit should suppress mutation pass)", s.Word)
+	}
+}
+
 func TestSuggestWithoutSuggester(t *testing.T) {
 	gs := &GoSpell{}
 	if _, err := gs.Suggest("foo", 5); err == nil {

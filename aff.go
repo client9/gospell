@@ -755,7 +755,10 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("REP stanza had %d fields, expected at least 3", len(parts))
 			}
 			// Extra fields beyond parts[2] are inline comments or morph annotations.
-			aff.Replacements = append(aff.Replacements, [2]string{parts[1], parts[2]})
+			// Hunspell uses _ to encode spaces in both pattern and replacement.
+			from := strings.ReplaceAll(parts[1], "_", " ")
+			to := strings.ReplaceAll(parts[2], "_", " ")
+			aff.Replacements = append(aff.Replacements, [2]string{from, to})
 		case "COMPOUNDMIN":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %d fields, expected 2", len(parts))
