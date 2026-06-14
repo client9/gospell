@@ -41,8 +41,8 @@ type compoundRules struct {
 }
 
 type expandedWord struct {
-	word         string
-	flags        string
+	word  string
+	flags string
 	// explicitFlags holds only the OutFlags emitted by the affix rule that
 	// generated this form. When chaining a second suffix, only these flags
 	// are considered — root flags are not propagated — so that rules without

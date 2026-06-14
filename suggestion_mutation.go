@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"unicode"
-
 )
 
 // MutationOptions controls the query-time mutation suggester.
