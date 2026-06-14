@@ -227,8 +227,12 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 
 // dicWordSplit splits a raw .dic entry into its word and flags components.
 // In hunspell's dic format, "/" separates the word from its flag string, but
-// "\/" inside the word is an escaped literal slash.  A bare "/" entry (the
-// word is the slash character itself) is returned as word="/" with no flags.
+// "\/" inside the word is an escaped literal slash.
+//
+// When the entry starts with "/" (e.g. WORDCHARS includes /), the leading "/"
+// is part of the word; the flag separator is the *next* "/" that follows it.
+// So "/AB" → word="/AB" (no flags), "/foo/AB" → word="/foo" flags="AB", and
+// "//AB" → word="/" flags="AB" (bare slash with flags).
 func dicWordSplit(entry string) (word, flags string, hasFlags bool) {
 	// Replace every "\/" with a NUL placeholder so a plain "/" is unambiguous.
 	working := strings.ReplaceAll(entry, "\\/", "\x00")
@@ -236,10 +240,16 @@ func dicWordSplit(entry string) (word, flags string, hasFlags bool) {
 	if idx == -1 {
 		return strings.ReplaceAll(working, "\x00", "/"), "", false
 	}
-	// A leading "/" means the word itself is "/"; anything after is the flags.
 	if idx == 0 {
-		flags := strings.ReplaceAll(working[1:], "\x00", "/")
-		return "/", flags, flags != ""
+		// Leading "/" is part of the word; look for a second "/" as the flag separator.
+		next := strings.Index(working[1:], "/")
+		if next == -1 {
+			return strings.ReplaceAll(working, "\x00", "/"), "", false
+		}
+		splitAt := 1 + next
+		return strings.ReplaceAll(working[:splitAt], "\x00", "/"),
+			strings.ReplaceAll(working[splitAt+1:], "\x00", "/"),
+			working[splitAt+1:] != ""
 	}
 	return strings.ReplaceAll(working[:idx], "\x00", "/"), strings.ReplaceAll(working[idx+1:], "\x00", "/"), true
 }

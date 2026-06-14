@@ -1936,8 +1936,12 @@ func TestDicWordSplit(t *testing.T) {
 		{"hello", "hello", "", false},
 		{"hello/AB", "hello", "AB", true},
 		{"/", "/", "", false},
-		// "/" with flags — word is "/" and flags follow.
-		{"/AB", "/", "AB", true},
+		// Leading "/" is part of the word; no second "/" means no flags.
+		{"/AB", "/AB", "", false},
+		// Leading "/" with a second "/" as flag separator.
+		{"/foo/AB", "/foo", "AB", true},
+		// Bare "/" word with flags uses a double slash "//flags".
+		{"//AB", "/", "AB", true},
 		{"TCP\\/IP", "TCP/IP", "", false},
 		// Escaped slash in the *flags* field must also be unescaped.
 		{"word/A\\/B", "word", "A/B", true},
