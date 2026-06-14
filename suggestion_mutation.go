@@ -12,14 +12,19 @@ import (
 // MutationOptions controls the query-time mutation suggester.
 type MutationOptions struct {
 	CandidateCap int
+	NGramRootCap int
 }
 
 // MutationSuggester generates one-edit candidates from the query word and
 // checks each candidate directly against the dictionary. It does not build an
 // inverted index up front.
 type MutationSuggester struct {
-	src  SuggestionSource
-	opts MutationOptions
+	src        SuggestionSource
+	spell      func(string) bool
+	tryChars   []rune
+	ngramRoots []mutationNGramRoot
+	ngramReady bool
+	opts       MutationOptions
 }
 
 var _ Suggestions = (*MutationSuggester)(nil)
@@ -28,6 +33,9 @@ var _ Suggestions = (*MutationSuggester)(nil)
 func NewMutationSuggester(opts MutationOptions) *MutationSuggester {
 	if opts.CandidateCap <= 0 {
 		opts.CandidateCap = 256
+	}
+	if opts.NGramRootCap <= 0 {
+		opts.NGramRootCap = 64
 	}
 	return &MutationSuggester{opts: opts}
 }
@@ -38,13 +46,24 @@ func (s *MutationSuggester) Init(src SuggestionSource) error {
 		return fmt.Errorf("nil suggestion source")
 	}
 	s.src = src
+	s.spell = src.HasWord
+	if spellSrc, ok := src.(interface{ Spell(string) bool }); ok {
+		s.spell = spellSrc.Spell
+	}
+	if gs, ok := src.(*GoSpell); ok && gs.affix != nil && gs.affix.TryChars != "" {
+		s.tryChars = uniqueLowerRunes(gs.affix.TryChars)
+	} else {
+		s.tryChars = nil
+	}
+	s.ngramRoots = nil
+	s.ngramReady = false
 	return nil
 }
 
 // Suggest returns the best matches ordered by edit distance, then keyboard
 // penalty, then lexicographic order.
 func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error) {
-	if limit <= 0 || s.src == nil || word == "" {
+	if limit <= 0 || s.src == nil || s.spell == nil || word == "" {
 		return nil, nil
 	}
 
@@ -58,7 +77,7 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 			if existing, ok := best[candidate]; ok && existing <= penalty {
 				return true
 			}
-			if !s.src.HasWord(candidate) {
+			if !s.spell(candidate) {
 				return true
 			}
 			best[candidate] = penalty
@@ -72,7 +91,7 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	}
 
 	if len(best) == 0 {
-		return nil, nil
+		return s.ngramSuggest(word, limit)
 	}
 
 	type scored struct {
@@ -111,6 +130,162 @@ func (s *MutationSuggester) Suggest(word string, limit int) ([]Suggestion, error
 	return out, nil
 }
 
+func (s *MutationSuggester) ngramSuggest(word string, limit int) ([]Suggestion, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	gs, ok := s.src.(*GoSpell)
+	if !ok || gs.affix == nil || len(gs.entriesByRoot) == 0 {
+		return nil, nil
+	}
+
+	roots := s.topNGramRoots(gs, word)
+	if len(roots) == 0 {
+		return nil, nil
+	}
+
+	type scored struct {
+		word  string
+		dist  int
+		score int
+	}
+	best := make(map[string]scored, s.opts.CandidateCap)
+	for _, root := range roots {
+		for _, entry := range gs.entriesByRoot[root.word] {
+			if !entrySuggestable(entry.rawFlags, gs.affix) {
+				continue
+			}
+			records, err := gs.affix.expandRecords(entry.line)
+			if err != nil {
+				continue
+			}
+			for _, rec := range records {
+				candidate := rec.word
+				if candidate == "" || candidate == word {
+					continue
+				}
+				if _, ok := best[candidate]; ok {
+					continue
+				}
+				if !s.spell(candidate) {
+					continue
+				}
+				score := ngramSuggestionScore(word, candidate)
+				best[candidate] = scored{
+					word:  candidate,
+					dist:  levenshtein.ComputeDistance(word, candidate),
+					score: score,
+				}
+				if len(best) >= s.opts.CandidateCap {
+					break
+				}
+			}
+			if len(best) >= s.opts.CandidateCap {
+				break
+			}
+		}
+		if len(best) >= s.opts.CandidateCap {
+			break
+		}
+	}
+	if len(best) == 0 {
+		return nil, nil
+	}
+
+	results := make([]scored, 0, len(best))
+	for _, item := range best {
+		results = append(results, item)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].score != results[j].score {
+			return results[i].score > results[j].score
+		}
+		if results[i].dist != results[j].dist {
+			return results[i].dist < results[j].dist
+		}
+		return results[i].word < results[j].word
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	out := make([]Suggestion, len(results))
+	for i := range results {
+		out[i] = Suggestion{Word: results[i].word, Score: results[i].dist}
+	}
+	return out, nil
+}
+
+type ngramRootCandidate struct {
+	word  string
+	score int
+}
+
+type mutationNGramRoot struct {
+	word     string
+	runes    []rune
+	trigrams []uint64
+}
+
+func buildMutationNGramRoots(gs *GoSpell) []mutationNGramRoot {
+	roots := make([]mutationNGramRoot, 0, len(gs.entriesByRoot))
+	for root, entries := range gs.entriesByRoot {
+		if !anyEntrySuggestable(entries, gs.affix) {
+			continue
+		}
+		lower := strings.ToLower(root)
+		roots = append(roots, mutationNGramRoot{
+			word:     root,
+			runes:    []rune(lower),
+			trigrams: sortedNGramHashes(lower, 3),
+		})
+	}
+	return roots
+}
+
+func (s *MutationSuggester) topNGramRoots(gs *GoSpell, word string) []ngramRootCandidate {
+	if !s.ngramReady {
+		s.ngramRoots = buildMutationNGramRoots(gs)
+		s.ngramReady = true
+	}
+	roots := make([]ngramRootCandidate, 0, s.opts.NGramRootCap)
+	queryLower := strings.ToLower(word)
+	queryRunes := []rune(queryLower)
+	queryTrigrams := sortedNGramHashes(queryLower, 3)
+	add := func(candidate ngramRootCandidate) {
+		if candidate.score <= 0 {
+			return
+		}
+		pos := sort.Search(len(roots), func(i int) bool {
+			if roots[i].score != candidate.score {
+				return roots[i].score < candidate.score
+			}
+			return roots[i].word > candidate.word
+		})
+		if pos == len(roots) {
+			if len(roots) < s.opts.NGramRootCap {
+				roots = append(roots, candidate)
+			}
+			return
+		}
+		roots = append(roots, ngramRootCandidate{})
+		copy(roots[pos+1:], roots[pos:])
+		roots[pos] = candidate
+		if len(roots) > s.opts.NGramRootCap {
+			roots = roots[:s.opts.NGramRootCap]
+		}
+	}
+	for _, root := range s.ngramRoots {
+		if root.word == word {
+			continue
+		}
+		add(ngramRootCandidate{
+			word:  root.word,
+			score: ngramRootScorePrepared(queryRunes, queryTrigrams, root),
+		})
+	}
+	return roots
+}
+
 func (s *MutationSuggester) collectCandidates(word string, visit func(candidate string, penalty int) bool) {
 	runes := []rune(word)
 	if len(runes) == 0 {
@@ -130,50 +305,53 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 	}
 
 	// 1. Adjacent transpositions (penalty 0 — most natural single-key error).
+	swapBuf := append([]rune(nil), runes...)
 	for i := 0; i+1 < len(runes); i++ {
 		if runes[i] == runes[i+1] {
 			continue
 		}
-		cp := append([]rune(nil), runes...)
-		cp[i], cp[i+1] = cp[i+1], cp[i]
-		if !emit(string(cp), 0) {
+		copy(swapBuf, runes)
+		swapBuf[i], swapBuf[i+1] = swapBuf[i+1], swapBuf[i]
+		if !emit(string(swapBuf), 0) {
 			return
 		}
 	}
 
 	// 2. Keyboard-biased substitutions (penalty 0) then generic alphabet (penalty 1).
+	subBuf := append([]rune(nil), runes...)
 	for i, r := range runes {
 		neighbors := qwertyNeighborsForRune(r)
 		for _, repl := range neighbors {
-			cp := append([]rune(nil), runes...)
-			cp[i] = preserveRuneCase(r, repl)
-			if !emit(string(cp), 0) {
+			copy(subBuf, runes)
+			subBuf[i] = preserveRuneCase(r, repl)
+			if !emit(string(subBuf), 0) {
 				return
 			}
 		}
-		for _, repl := range englishAlphabetRunes {
+		for _, repl := range s.replacementRunes() {
 			if unicode.ToLower(r) == repl {
 				continue
 			}
-			cp := append([]rune(nil), runes...)
-			cp[i] = preserveRuneCase(r, repl)
-			if !emit(string(cp), 1) {
+			copy(subBuf, runes)
+			subBuf[i] = preserveRuneCase(r, repl)
+			if !emit(string(subBuf), 1) {
 				return
 			}
 		}
 	}
 
 	// 3. Keyboard-biased insertions (penalty 0) then generic alphabet (penalty 1).
+	insertBuf := make([]rune, len(runes)+1)
 	for i := 0; i <= len(runes); i++ {
 		neighbors := qwertyInsertionNeighbors(runes, i)
 		for _, repl := range neighbors {
-			candidate := insertRune(runes, i, repl)
+			candidate := insertRuneInto(insertBuf, runes, i, repl)
 			if !emit(candidate, 0) {
 				return
 			}
 		}
-		for _, repl := range englishAlphabetRunes {
-			candidate := insertRune(runes, i, preserveInsertionCase(runes, i, repl))
+		for _, repl := range s.replacementRunes() {
+			candidate := insertRuneInto(insertBuf, runes, i, preserveInsertionCase(runes, i, repl))
 			if !emit(candidate, 1) {
 				return
 			}
@@ -181,8 +359,14 @@ func (s *MutationSuggester) collectCandidates(word string, visit func(candidate 
 	}
 
 	// 4. Deletions last (penalty 2 — least likely to be the intended correction).
+	if len(runes) <= 1 {
+		return
+	}
+	deleteBuf := make([]rune, len(runes)-1)
 	for i := range runes {
-		candidate := string(append(append([]rune(nil), runes[:i]...), runes[i+1:]...))
+		copy(deleteBuf, runes[:i])
+		copy(deleteBuf[i:], runes[i+1:])
+		candidate := string(deleteBuf)
 		if !emit(candidate, 2) {
 			return
 		}
@@ -213,11 +397,7 @@ func mutationCaseVariants(word string) []string {
 
 func qwertyNeighborsForRune(r rune) []rune {
 	if repls, ok := qwertyNeighbors[unicode.ToLower(r)]; ok {
-		out := make([]rune, len(repls))
-		for i, repl := range repls {
-			out[i] = preserveRuneCase(r, repl)
-		}
-		return out
+		return repls
 	}
 	return nil
 }
@@ -264,12 +444,197 @@ func preserveInsertionCase(runes []rune, pos int, repl rune) rune {
 	return repl
 }
 
-func insertRune(runes []rune, pos int, repl rune) string {
-	out := make([]rune, 0, len(runes)+1)
-	out = append(out, runes[:pos]...)
-	out = append(out, repl)
-	out = append(out, runes[pos:]...)
+func insertRuneInto(out []rune, runes []rune, pos int, repl rune) string {
+	out = out[:len(runes)+1]
+	copy(out, runes[:pos])
+	out[pos] = repl
+	copy(out[pos+1:], runes[pos:])
 	return string(out)
+}
+
+func (s *MutationSuggester) replacementRunes() []rune {
+	if len(s.tryChars) > 0 {
+		return s.tryChars
+	}
+	return englishAlphabetRunes
+}
+
+func uniqueLowerRunes(chars string) []rune {
+	seen := make(map[rune]struct{}, len(chars))
+	out := make([]rune, 0, len(chars))
+	for _, r := range chars {
+		r = unicode.ToLower(r)
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	return out
+}
+
+func anyEntrySuggestable(entries []dictionaryEntry, affix *dictConfig) bool {
+	for _, entry := range entries {
+		if entrySuggestable(entry.rawFlags, affix) {
+			return true
+		}
+	}
+	return false
+}
+
+func entrySuggestable(flags []string, affix *dictConfig) bool {
+	if affix == nil {
+		return true
+	}
+	return !hasFlagToken(flags, affix.ForbiddenWordFlag) &&
+		!hasFlagToken(flags, affix.NoSuggestFlag) &&
+		!hasFlagToken(flags, affix.CompoundOnly)
+}
+
+func ngramRootScorePrepared(queryRunes []rune, queryTrigrams []uint64, root mutationNGramRoot) int {
+	if absIntLocal(len(queryRunes)-len(root.runes)) > 5 {
+		return 0
+	}
+	score := ngramOverlapHashes(queryTrigrams, root.trigrams)*4 + leftCommonRunes(queryRunes, root.runes)*2
+	score -= absIntLocal(len(queryRunes) - len(root.runes))
+	return score
+}
+
+func ngramSuggestionScore(query, candidate string) int {
+	query = strings.ToLower(query)
+	candidate = strings.ToLower(candidate)
+	qr := []rune(query)
+	cr := []rune(candidate)
+	score := ngramOverlapScore(query, candidate, 3) * 5
+	score += ngramOverlapScore(query, candidate, 2) * 2
+	score += leftCommonRunes(qr, cr) * 2
+	score += lcsRunes(qr, cr) * 2
+	score -= absIntLocal(len(qr) - len(cr))
+	return score
+}
+
+func sortedNGramHashes(word string, n int) []uint64 {
+	if n <= 0 {
+		return nil
+	}
+	runes := []rune(word)
+	if len(runes) == 0 {
+		return nil
+	}
+	padded := make([]rune, 0, len(runes)+2)
+	padded = append(padded, '^')
+	padded = append(padded, runes...)
+	padded = append(padded, '$')
+	if len(padded) < n {
+		return []uint64{hashRunes(padded)}
+	}
+	out := make([]uint64, 0, len(padded)-n+1)
+	for i := 0; i+n <= len(padded); i++ {
+		out = append(out, hashRunes(padded[i:i+n]))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func ngramOverlapHashes(a, b []uint64) int {
+	score := 0
+	for i, j := 0, 0; i < len(a) && j < len(b); {
+		switch {
+		case a[i] < b[j]:
+			i++
+		case a[i] > b[j]:
+			j++
+		default:
+			score++
+			i++
+			j++
+		}
+	}
+	return score
+}
+
+func hashRunes(runes []rune) uint64 {
+	var h uint64 = 1469598103934665603
+	for _, r := range runes {
+		h ^= uint64(r)
+		h *= 1099511628211
+	}
+	return h
+}
+
+func ngramOverlapScore(a, b string, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	agram := ngramCounts(a, n)
+	if len(agram) == 0 {
+		return 0
+	}
+	score := 0
+	for gram, count := range ngramCounts(b, n) {
+		if ac := agram[gram]; ac > 0 {
+			if count < ac {
+				score += count
+			} else {
+				score += ac
+			}
+		}
+	}
+	return score
+}
+
+func ngramCounts(word string, n int) map[string]int {
+	runes := []rune(word)
+	if len(runes) == 0 {
+		return nil
+	}
+	padded := make([]rune, 0, len(runes)+2)
+	padded = append(padded, '^')
+	padded = append(padded, runes...)
+	padded = append(padded, '$')
+	if len(padded) < n {
+		return map[string]int{string(padded): 1}
+	}
+	out := make(map[string]int, len(padded)-n+1)
+	for i := 0; i+n <= len(padded); i++ {
+		out[string(padded[i:i+n])]++
+	}
+	return out
+}
+
+func leftCommonRunes(a, b []rune) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
+}
+
+func lcsRunes(a, b []rune) int {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for i := 1; i <= len(a); i++ {
+		for j := 1; j <= len(b); j++ {
+			if a[i-1] == b[j-1] {
+				curr[j] = prev[j-1] + 1
+			} else if prev[j] > curr[j-1] {
+				curr[j] = prev[j]
+			} else {
+				curr[j] = curr[j-1]
+			}
+		}
+		prev, curr = curr, prev
+		clear(curr)
+	}
+	return prev[len(b)]
 }
 
 var englishAlphabetRunes = []rune("abcdefghijklmnopqrstuvwxyz")

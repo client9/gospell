@@ -12,9 +12,9 @@ It is designed for:
 - exact word checking
 - word splitting and compound handling
 - per-document or per-session word list overlays
-- pluggable suggestion engines
+- lazy mutation-based spelling suggestions
 
-The package keeps the core checker small and lets you choose the suggestion strategy that fits your workload.
+The package keeps the core checker small and uses lazy lookup for both spelling and suggestions.
 
 ## Features
 
@@ -23,12 +23,7 @@ The package keeps the core checker small and lets you choose the suggestion stra
 - Exact spell checking with affix and compound handling
 - `WordList` overlays — add allowed or forbidden words without touching the base dictionary
 - `Checker` — combines a base dictionary with any number of `WordList`s; supports per-document reset at zero cost
-- Pluggable suggestion engines
-- Built-in reference engines:
-  - brute-force Levenshtein
-  - English/QWERTY mutation suggester
-  - SymSpell-style delete index
-  - hashed trigram index with Levenshtein rerank
+- Built-in English/QWERTY mutation suggester with n-gram fallback
 
 ## Install
 
@@ -61,17 +56,13 @@ func main() {
 
 ## Suggestions
 
-Suggestions are provided by a pluggable engine.
+Suggestions use the built-in mutation suggester by default. The suggester
+generates common typo mutations first, then falls back to an n-gram root scan
+that expands only the best matching roots.
 
 ```go
 gs, err := gospell.NewGoSpell("hunspell-en_US-2026/en_US.aff", "hunspell-en_US-2026/en_US.dic")
 if err != nil {
-	log.Fatal(err)
-}
-
-if err := gs.SetSuggester(gospell.NewLevenshteinSuggester(
-	gospell.LevenshteinOptions{MaxDistance: 2},
-)); err != nil {
 	log.Fatal(err)
 }
 
@@ -84,38 +75,11 @@ for _, sug := range sugs {
 }
 ```
 
-For a faster indexed strategy:
-
-```go
-if err := gs.SetSuggester(gospell.NewTrigramSuggester(
-	gospell.TrigramOptions{
-		RerankLimit:   32,
-		MaxLengthDiff: 4,
-	},
-)); err != nil {
-	log.Fatal(err)
-}
-```
-
-For a zero-index strategy that generates English/QWERTY mutations on the fly:
+You can still replace the default suggester if you provide your own engine:
 
 ```go
 if err := gs.SetSuggester(gospell.NewMutationSuggester(
 	gospell.MutationOptions{CandidateCap: 256},
-)); err != nil {
-	log.Fatal(err)
-}
-```
-
-For a delete-based strategy that usually sits between brute force and the
-trigram index in cost:
-
-```go
-if err := gs.SetSuggester(gospell.NewSymSpellSuggester(
-	gospell.SymSpellOptions{
-		MaxDistance:  2,
-		PrefixLength: 7,
-	},
 )); err != nil {
 	log.Fatal(err)
 }
@@ -134,33 +98,27 @@ type Suggestions interface {
 
 This makes it easy to experiment with:
 
-- brute-force distance scoring
 - query-time mutation generation
-- delete-index candidate generation
-- n-gram or trigram indexing
+- n-gram fallback scoring
 - chained or composite engines
 
 ### Built-In Suggesters
 
-`gospell` currently ships with four reference suggestion engines:
+`gospell` currently ships with one built-in suggestion engine:
 
-- `NewLevenshteinSuggester` - scans every dictionary word and ranks by edit distance
-- `NewMutationSuggester` - generates English/QWERTY one-edit candidates on demand
-- `NewSymSpellSuggester` - delete-index engine with expensive build and fast lookup
-- `NewTrigramSuggester` - trigram overlap filter followed by Levenshtein rerank
+- `NewMutationSuggester` - generates English/QWERTY candidates on demand and falls back to n-gram root matching
 
 Defaults:
 
-- `LevenshteinOptions{MaxDistance: 2}` when nonzero; `0` disables the cap
-- `MutationOptions{CandidateCap: 256}`
-- `SymSpellOptions{MaxDistance: 2, PrefixLength: 7}`
-- `TrigramOptions{RerankLimit: 32, MaxLengthDiff: 4}`
+- `MutationOptions{CandidateCap: 256, NGramRootCap: 64}`
 
 ### Mutation-Based Suggestions
 
 The mutation suggester takes the misspelled word, generates a bounded set of
-single-edit candidates, and checks each candidate against the dictionary. It
-does not build an index up front.
+single-edit candidates, and checks each candidate with the dictionary's lazy
+`Spell` method. If no mutation survives, it scans root dictionary entries by
+n-gram similarity, expands only the best roots, and reranks those candidates.
+It does not materialize all dictionary surfaces.
 
 The current first pass assumes English and a QWERTY keyboard:
 
@@ -174,21 +132,6 @@ missing letters, doubled letters, transpositions, and near-key substitutions.
 
 See [`docs/mutation-suggestions.md`](/Users/nickg/projects/gospell/docs/mutation-suggestions.md)
 for a longer explanation of the approach and tradeoffs.
-
-### SymSpell-Style Suggestions
-
-The delete-index engine stores each dictionary word under the strings that can
-be formed by deleting up to `MaxDistance` runes from the word prefix. A query
-word generates the same family of deletes, and matching delete strings recover
-a much smaller candidate set than scanning the full dictionary.
-
-That works because nearby misspellings tend to share at least one delete form.
-For example, if `sillly` should be `silly`, both words share the delete form
-`silly`. Once the candidate set is small, the engine reranks with a true
-Levenshtein distance so the final ordering is easy to interpret.
-
-See [`docs/symspell-suggestions.md`](/Users/nickg/projects/gospell/docs/symspell-suggestions.md)
-for a longer explanation of the data structure and tradeoffs.
 
 ## Word Lists
 
@@ -241,9 +184,8 @@ The main entry points are:
 - [`(*Checker).AddWordList`](https://pkg.go.dev/github.com/client9/gospell#Checker.AddWordList) / [`RemoveWordList`](https://pkg.go.dev/github.com/client9/gospell#Checker.RemoveWordList)
 - [`NewWordList`](https://pkg.go.dev/github.com/client9/gospell#NewWordList) / [`NewWordListFile`](https://pkg.go.dev/github.com/client9/gospell#NewWordListFile)
 - [`(*GoSpell).Spell`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Spell) — direct base-only check (no WordLists)
-- [`(*GoSpell).SetSuggester`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.SetSuggester) / [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
+- [`(*GoSpell).Suggest`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.Suggest)
 - [`NewMutationSuggester`](https://pkg.go.dev/github.com/client9/gospell#NewMutationSuggester)
-- [`NewSymSpellSuggester`](https://pkg.go.dev/github.com/client9/gospell#NewSymSpellSuggester)
 
 ## Hunspell Compatibility
 

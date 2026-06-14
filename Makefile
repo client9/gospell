@@ -53,6 +53,7 @@ lint: ## lint and verify repo is already formatted
 clean: ## remove any generated files
 	go clean -i -cache -testcache
 	rm -f *.out 
+	rm -f *.prof
 	rm -f ./gospell
 	rm -rf hunspell
 	rm -rf hunspell-en_US*

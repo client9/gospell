@@ -22,7 +22,7 @@ var (
 )
 
 const (
-	defaultLogTmpl  = `{{ .Path }}:{{ .LineNum }}:{{ js .Original }}`
+	defaultLogTmpl  = `{{ .Path }}:{{ .LineNum }}:{{ js .Original }}{{ if .SuggestionsText }} -> {{ .SuggestionsText }}{{ end }}`
 	defaultWordTmpl = `{{ .Original }}`
 	defaultLineTmpl = `{{ .Line }}`
 )

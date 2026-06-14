@@ -68,6 +68,10 @@ func benchmarkSuggestInit(b *testing.B, suggester Suggestions) {
 // benchmarkSuggestQuery measures lookup only against an already initialized
 // suggester. The index build happens once before the timer starts.
 func benchmarkSuggestQuery(b *testing.B, suggester Suggestions, limit int) {
+	benchmarkSuggestQueryWord(b, suggester, benchQuery, limit)
+}
+
+func benchmarkSuggestQueryWord(b *testing.B, suggester Suggestions, query string, limit int) {
 	gs := newBenchmarkSpell(b)
 	if err := suggester.Init(gs); err != nil {
 		b.Fatal(err)
@@ -76,47 +80,11 @@ func benchmarkSuggestQuery(b *testing.B, suggester Suggestions, limit int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := gs.Suggest(benchQuery, limit)
+		_, err := gs.Suggest(query, limit)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
-}
-
-func BenchmarkSetSuggesterLevenshtein(b *testing.B) {
-	benchmarkSuggestInit(b, NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 2}))
-}
-
-func BenchmarkSuggestLevenshtein(b *testing.B) {
-	benchmarkSuggestQuery(b, NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 2}), 5)
-}
-
-func BenchmarkSetSuggesterTrigram(b *testing.B) {
-	benchmarkSuggestInit(b, NewTrigramSuggester(TrigramOptions{
-		RerankLimit:   32,
-		MaxLengthDiff: 4,
-	}))
-}
-
-func BenchmarkSuggestTrigram(b *testing.B) {
-	benchmarkSuggestQuery(b, NewTrigramSuggester(TrigramOptions{
-		RerankLimit:   32,
-		MaxLengthDiff: 4,
-	}), 5)
-}
-
-func BenchmarkSetSuggesterSymSpell(b *testing.B) {
-	benchmarkSuggestInit(b, NewSymSpellSuggester(SymSpellOptions{
-		MaxDistance:  2,
-		PrefixLength: 7,
-	}))
-}
-
-func BenchmarkSuggestSymSpell(b *testing.B) {
-	benchmarkSuggestQuery(b, NewSymSpellSuggester(SymSpellOptions{
-		MaxDistance:  2,
-		PrefixLength: 7,
-	}), 5)
 }
 
 func BenchmarkSetSuggesterMutation(b *testing.B) {
@@ -126,7 +94,18 @@ func BenchmarkSetSuggesterMutation(b *testing.B) {
 }
 
 func BenchmarkSuggestMutation(b *testing.B) {
+	BenchmarkSuggestMutationTypo(b)
+}
+
+func BenchmarkSuggestMutationTypo(b *testing.B) {
 	benchmarkSuggestQuery(b, NewMutationSuggester(MutationOptions{
 		CandidateCap: 256,
 	}), 5)
+}
+
+func BenchmarkSuggestMutationNGramFallback(b *testing.B) {
+	benchmarkSuggestQueryWord(b, NewMutationSuggester(MutationOptions{
+		CandidateCap: 256,
+		NGramRootCap: 64,
+	}), "sillezz", 5)
 }

@@ -32,7 +32,6 @@ type GoSpell struct {
 	dictByRuneLen       map[int][]string
 	surfaces            map[string][]surfaceEntry
 	wordFlags           map[string]map[string]struct{}
-	wordEntryCount      map[string]int
 	compoundOnlyRoot    map[string]struct{}
 	compoundOnly        map[string]struct{}
 	compoundBegin       map[string]struct{}
@@ -57,6 +56,15 @@ type GoSpell struct {
 	checkCompoundTriple bool
 	simplifiedTriple    bool
 	checkCompoundRep    bool
+	affix               *dictConfig
+	entriesByRoot       map[string][]dictionaryEntry
+	lazySurfaceChecked  map[string]struct{}
+}
+
+type dictionaryEntry struct {
+	line     string
+	base     string
+	rawFlags []string
 }
 
 // InputConversion does any character substitution before checking
@@ -178,6 +186,7 @@ func (s *GoSpell) Suggest(word string, limit int) ([]Suggestion, error) {
 // and rescues the word.  Derived forms (affix expansions) do not rescue a word
 // that has an explicit FORBIDDENWORD dic entry.
 func (s *GoSpell) isWordForbidden(word string) bool {
+	s.ensureLazySurface(word)
 	entries := s.surfaces[word]
 	if len(entries) == 0 {
 		return false
@@ -247,6 +256,20 @@ func (s *GoSpell) spellConverted(word string) bool {
 		// isn't accepted just because "imply" is in the dict.
 		if strings.ToUpper(lower) == word && s.spellExact(lower) {
 			return true
+		}
+		if idx := strings.LastIndexByte(word, '\''); idx > 0 && idx+1 < len(word) {
+			possessive := word[:idx] + strings.ToLower(word[idx:])
+			if possessive != word && s.spellExact(possessive) {
+				return true
+			}
+			rest := strings.ToLower(word[idx+1:])
+			if rest != "" {
+				r, size := utf8.DecodeRuneInString(rest)
+				prefixed := word[:idx+1] + string(unicode.ToUpper(r)) + rest[size:]
+				if prefixed != word && s.spellExact(prefixed) {
+					return true
+				}
+			}
 		}
 		// Title form: original first rune (already uppercase) + lowercase rest.
 		// Using the original rune preserves diacritics like İ (U+0130) that
@@ -402,6 +425,7 @@ func computeBreakPatterns(aff *dictConfig) []string {
 }
 
 func (s *GoSpell) surfaceAllowsStandalone(word string) (bool, bool) {
+	s.ensureLazySurface(word)
 	if len(s.surfaces) == 0 {
 		return false, false
 	}
@@ -691,6 +715,7 @@ func (s *GoSpell) wordOrRootHasFlag(word, flag string) bool {
 	if s.wordHasFlag(word, flag) {
 		return true
 	}
+	s.ensureLazySurface(word)
 	for _, entry := range s.surfaces[word] {
 		for _, f := range entry.RawFlags {
 			if f == flag {
@@ -711,7 +736,7 @@ func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
 		for _, rule := range s.compoundPatterns {
 			if rule.leftFlag != "" {
 				if rule.leftStemOnly {
-					if !s.wordHasFlag(left, rule.leftFlag) {
+					if !s.wordHasFlag(left, rule.leftFlag) && !s.derivedOnlyInCompoundHasRootFlag(right, rule.leftFlag) {
 						continue
 					}
 				} else {
@@ -738,6 +763,24 @@ func (s *GoSpell) compoundPatternBlocks(parts []string) bool {
 				continue
 			}
 			return true
+		}
+	}
+	return false
+}
+
+func (s *GoSpell) derivedOnlyInCompoundHasRootFlag(word, flag string) bool {
+	if flag == "" {
+		return false
+	}
+	s.ensureLazySurface(word)
+	for _, entry := range s.surfaces[word] {
+		if entry.IsRoot || !entry.OnlyInCompound {
+			continue
+		}
+		for _, rawFlag := range entry.RawFlags {
+			if rawFlag == flag {
+				return true
+			}
 		}
 	}
 	return false
@@ -970,6 +1013,7 @@ func insertWord(dict map[string]struct{}, word string) {
 }
 
 func (s *GoSpell) surfaceAllowsCompound(word string, pos compoundPosition) (bool, bool) {
+	s.ensureLazySurface(word)
 	if len(s.surfaces) == 0 {
 		return false, false
 	}
@@ -1054,6 +1098,243 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	return entry
 }
 
+func hasExplicitCompoundPosition(flags string, affix *dictConfig) bool {
+	return affix != nil &&
+		(flagContains(flags, affix.CompoundBeginFlag, affix.flagMode) ||
+			flagContains(flags, affix.CompoundMiddleFlag, affix.flagMode) ||
+			flagContains(flags, affix.CompoundEndFlag, affix.flagMode))
+}
+
+func rootExpandedRecord(base string, rawFlags []string, affix *dictConfig) expandedWord {
+	rec := expandedWord{word: base}
+	if affix == nil || len(rawFlags) == 0 {
+		return rec
+	}
+	flags := mergeFlags(affix.flagMode, rawFlags...)
+	rec.flags = flags
+	rec.mask, rec.forbid = affix.maskForFlags(rawFlags)
+	for _, flag := range rawFlags {
+		if affix.isCompoundOnlyFlag(flag) {
+			rec.compoundOnly = true
+		}
+	}
+	rec.needsAffix = affix.NeedAffixFlag != "" && hasFlagToken(rawFlags, affix.NeedAffixFlag)
+	return rec
+}
+
+func (s *GoSpell) addRootEntry(line string, affix *dictConfig) error {
+	rawFlags := compoundEntryFlags(line, affix)
+	base, _, _ := dicWordSplit(line)
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return nil
+	}
+	entry := dictionaryEntry{
+		line:     line,
+		base:     base,
+		rawFlags: append([]string(nil), rawFlags...),
+	}
+	s.entriesByRoot[base] = append(s.entriesByRoot[base], entry)
+	insertWord(s.dict, base)
+	rec := rootExpandedRecord(base, rawFlags, affix)
+	if s.surfaces == nil {
+		s.surfaces = make(map[string][]surfaceEntry)
+	}
+	s.surfaces[base] = append(s.surfaces[base], buildSurfaceEntry(base, rawFlags, affix, rec))
+	if len(rawFlags) > 0 {
+		if s.wordFlags[base] == nil {
+			s.wordFlags[base] = make(map[string]struct{}, len(rawFlags))
+		}
+		for _, flag := range rawFlags {
+			s.wordFlags[base][flag] = struct{}{}
+			if _, ok := affix.compoundMap[flag]; ok {
+				affix.compoundMap[flag] = append(affix.compoundMap[flag], base)
+			}
+			if flag == affix.ForceUcaseFlag {
+				if s.forceUcaseWords == nil {
+					s.forceUcaseWords = make(map[string]struct{})
+				}
+				s.forceUcaseWords[base] = struct{}{}
+			}
+		}
+	}
+	if rec.compoundOnly && !hasExplicitCompoundPosition(rec.flags, affix) {
+		s.compoundOnlyRoot[base] = struct{}{}
+		if s.compoundOnly == nil {
+			s.compoundOnly = make(map[string]struct{})
+		}
+		s.compoundOnly[base] = struct{}{}
+	} else if !rec.forbid {
+		if rec.mask&compoundBegin != 0 {
+			s.compoundBegin[base] = struct{}{}
+		}
+		if rec.mask&compoundMiddle != 0 {
+			s.compoundMiddle[base] = struct{}{}
+		}
+		if rec.mask&compoundEnd != 0 {
+			s.compoundEnd[base] = struct{}{}
+		}
+	}
+	if strings.ContainsRune(base, ' ') {
+		if s.blockedCompound == nil {
+			s.blockedCompound = make(map[string]struct{})
+		}
+		s.blockedCompound[strings.ReplaceAll(base, " ", "")] = struct{}{}
+		records, err := affix.expandRecords(line)
+		if err != nil {
+			return err
+		}
+		for _, rec := range records {
+			if strings.ContainsRune(rec.word, ' ') {
+				s.blockedCompound[strings.ReplaceAll(rec.word, " ", "")] = struct{}{}
+			}
+		}
+	}
+	if len(base) > s.maxWordLen {
+		s.maxWordLen = len(base)
+	}
+	return nil
+}
+
+func (s *GoSpell) ensureLazySurface(word string) {
+	if s == nil || s.affix == nil || word == "" {
+		return
+	}
+	if s.lazySurfaceChecked == nil {
+		s.lazySurfaceChecked = make(map[string]struct{})
+	}
+	if _, ok := s.lazySurfaceChecked[word]; ok {
+		return
+	}
+	s.lazySurfaceChecked[word] = struct{}{}
+	if s.surfaces == nil {
+		s.surfaces = make(map[string][]surfaceEntry)
+	}
+
+	candidates := s.lazyRootCandidates(word)
+	seenSurface := make(map[string]struct{})
+	for _, entry := range candidates {
+		records, err := s.affix.expandRecords(entry.line)
+		if err != nil {
+			continue
+		}
+		for _, rec := range records {
+			if rec.word != word {
+				continue
+			}
+			key := lazySurfaceKey(entry.line, rec)
+			if _, ok := seenSurface[key]; ok {
+				continue
+			}
+			seenSurface[key] = struct{}{}
+			s.surfaces[word] = append(s.surfaces[word], buildSurfaceEntry(word, entry.rawFlags, s.affix, rec))
+			if rec.compoundOnly && !hasExplicitCompoundPosition(rec.flags, s.affix) {
+				if s.compoundOnlyRoot == nil {
+					s.compoundOnlyRoot = make(map[string]struct{})
+				}
+				s.compoundOnlyRoot[word] = struct{}{}
+			}
+			if strings.ContainsRune(word, ' ') {
+				if s.blockedCompound == nil {
+					s.blockedCompound = make(map[string]struct{})
+				}
+				s.blockedCompound[strings.ReplaceAll(word, " ", "")] = struct{}{}
+			}
+			if len(word) > s.maxWordLen {
+				s.maxWordLen = len(word)
+			}
+		}
+	}
+}
+
+func lazySurfaceKey(line string, rec expandedWord) string {
+	return line + "\x00" + rec.word + "\x00" + rec.flags + "\x00" + strconv.Itoa(int(rec.state)) + "\x00" + strconv.Itoa(int(rec.mask))
+}
+
+func (s *GoSpell) lazyRootCandidates(word string) []dictionaryEntry {
+	seenRoots := make(map[string]struct{})
+	stems := s.reverseAffixStems(word)
+	out := make([]dictionaryEntry, 0, len(stems))
+	for _, stem := range stems {
+		if _, done := seenRoots[stem]; done {
+			continue
+		}
+		seenRoots[stem] = struct{}{}
+		out = append(out, s.entriesByRoot[stem]...)
+	}
+	return out
+}
+
+func (s *GoSpell) reverseAffixStems(word string) []string {
+	if s.affix == nil {
+		return []string{word}
+	}
+	type state struct {
+		word   string
+		prefix int
+		suffix int
+	}
+	queue := []state{{word: word}}
+	seen := map[state]struct{}{{word: word}: {}}
+	stems := []string{word}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.prefix+cur.suffix >= 3 {
+			continue
+		}
+		for _, af := range s.affix.AffixMap {
+			if af.Type == prefix && cur.prefix >= 1 {
+				continue
+			}
+			if af.Type == suffix && cur.suffix >= 2 {
+				continue
+			}
+			for _, r := range af.Rules {
+				stem, ok := reverseAffixRule(cur.word, af.Type, r)
+				if !ok {
+					continue
+				}
+				next := state{word: stem, prefix: cur.prefix, suffix: cur.suffix}
+				if af.Type == prefix {
+					next.prefix++
+				} else {
+					next.suffix++
+				}
+				if _, ok := seen[next]; ok {
+					continue
+				}
+				seen[next] = struct{}{}
+				stems = append(stems, stem)
+				queue = append(queue, next)
+			}
+		}
+	}
+	return stems
+}
+
+func reverseAffixRule(word string, typ affixType, r rule) (string, bool) {
+	var stem string
+	if typ == prefix {
+		if !strings.HasPrefix(word, r.AffixText) {
+			return "", false
+		}
+		stem = r.Strip + word[len(r.AffixText):]
+	} else {
+		if !strings.HasSuffix(word, r.AffixText) {
+			return "", false
+		}
+		stem = word[:len(word)-len(r.AffixText)] + r.Strip
+	}
+	if stem == word {
+		return "", false
+	}
+	if r.matcher != nil && !r.matcher.MatchString(stem) {
+		return "", false
+	}
+	return stem, true
+}
+
 // NewGoSpellReader creates a GoSpell from io.Readers for Hunspell AFF and DIC data.
 func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	affBytes, err := io.ReadAll(aff)
@@ -1113,13 +1394,15 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		dict:                make(map[string]struct{}),
 		surfaces:            make(map[string][]surfaceEntry),
 		wordFlags:           make(map[string]map[string]struct{}),
-		wordEntryCount:      make(map[string]int),
 		compoundOnlyRoot:    make(map[string]struct{}),
 		compoundOnly:        affix.compoundOnlyWords,
 		compoundBegin:       affix.compoundBeginWords,
 		compoundMiddle:      affix.compoundMiddleWords,
 		compoundEnd:         affix.compoundEndWords,
 		forceUcaseWords:     affix.forceUcaseWords,
+		affix:               affix,
+		entriesByRoot:       make(map[string][]dictionaryEntry),
+		lazySurfaceChecked:  make(map[string]struct{}),
 		compoundBeginFlag:   affix.CompoundBeginFlag,
 		compoundMiddleFlag:  affix.CompoundMiddleFlag,
 		compoundEndFlag:     affix.CompoundEndFlag,
@@ -1137,65 +1420,13 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		breakPatterns:       computeBreakPatterns(affix),
 	}
 
-	var words []expandedWord
 	for scanner.Scan() {
 		line := stripDicMorphFields(scanner.Text())
-		rawFlags := compoundEntryFlags(line, affix)
-		compoundOnlyEntry := false
-		for _, flag := range rawFlags {
-			if flag == affix.CompoundOnly {
-				compoundOnlyEntry = true
-				break
-			}
-		}
-		expanded, err := affix.expandRecords(line)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process %q: %s", line, err)
-		}
-		words = expanded
-		base, _, _ := dicWordSplit(line)
-		base = strings.TrimSpace(base)
-		// wordFlags stores the root dic-entry flags for the base word.
-		// expandStateRecords merges same-spelling records (OR-ing state), so we
-		// cannot rely on rec.state==0 to identify the root entry.  Instead, store
-		// rawFlags (the DIC line's flags) directly for the base word.  Derived
-		// forms (SFX/PFX) get their own surface entries and never appear as base.
-		if base != "" && len(rawFlags) > 0 {
-			if gs.wordFlags[base] == nil {
-				gs.wordFlags[base] = make(map[string]struct{}, len(rawFlags))
-			}
-			for _, flag := range rawFlags {
-				gs.wordFlags[base][flag] = struct{}{}
-			}
-		}
-		seen := make(map[string]struct{}, len(words))
-		for _, rec := range words {
-			word := rec.word
-			if _, ok := seen[word]; ok {
-				continue
-			}
-			seen[word] = struct{}{}
-			insertWord(gs.dict, word)
-			gs.surfaces[word] = append(gs.surfaces[word], buildSurfaceEntry(word, rawFlags, affix, rec))
-			gs.wordEntryCount[word]++
-			if strings.ContainsRune(word, ' ') {
-				if gs.blockedCompound == nil {
-					gs.blockedCompound = make(map[string]struct{})
-				}
-				gs.blockedCompound[strings.ReplaceAll(word, " ", "")] = struct{}{}
-			}
-			if len(word) > gs.maxWordLen {
-				gs.maxWordLen = len(word)
-			}
-		}
-		if compoundOnlyEntry {
-			if base != "" {
-				gs.compoundOnlyRoot[base] = struct{}{}
-			}
-			for _, rec := range words {
-				gs.compoundOnlyRoot[rec.word] = struct{}{}
-			}
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
+		}
+		if err := gs.addRootEntry(line, affix); err != nil {
+			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1239,6 +1470,10 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 	for w := range gs.dict {
 		rl := utf8.RuneCountInString(w)
 		gs.dictByRuneLen[rl] = append(gs.dictByRuneLen[rl], w)
+	}
+
+	if err := gs.SetSuggester(NewMutationSuggester(MutationOptions{})); err != nil {
+		return nil, err
 	}
 
 	return &gs, nil

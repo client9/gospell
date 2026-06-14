@@ -55,10 +55,8 @@ that rely on unsupported directives.
 
 ## Suggestions
 
-- [x] brute-force Levenshtein suggester
 - [x] English/QWERTY mutation suggester
-- [x] trigram-index suggester
-- [x] SymSpell-style delete-index suggester
+- [x] simplified n-gram fallback suggester
 - [x] `MAXNGRAMSUGS` is accepted as a suggester option
 - [ ] Hunspell-style suggestion parity
 - [ ] phonetic suggestion rules

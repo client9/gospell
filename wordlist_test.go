@@ -153,10 +153,6 @@ func TestCheckerSuggestSkipsForbidden(t *testing.T) {
 		t.Error("Spell(colour) = true, want false (forbidden)")
 	}
 
-	suggester := NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 3})
-	if err := gs.SetSuggester(suggester); err != nil {
-		t.Fatalf("SetSuggester: %v", err)
-	}
 	suggestions, err := c.Suggest("color", 10)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
@@ -177,10 +173,6 @@ func TestCheckerSuggestFiltersBaseDictForbidden(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("NewGoSpellReader: %v", err)
-	}
-	suggester := NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 3})
-	if err := gs.SetSuggester(suggester); err != nil {
-		t.Fatalf("SetSuggester: %v", err)
 	}
 	c := NewChecker(gs)
 	wl := &WordList{}
