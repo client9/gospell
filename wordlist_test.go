@@ -132,6 +132,42 @@ func TestCheckerMultipleWordLists(t *testing.T) {
 	}
 }
 
+func TestCheckerSuggestSkipsForbidden(t *testing.T) {
+	gs, err := NewGoSpellReader(
+		strings.NewReader(""),
+		strings.NewReader("1\nfoo\n"),
+	)
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	c := NewChecker(gs)
+
+	wl1 := &WordList{}
+	wl1.Add("colour")
+	wl2 := &WordList{}
+	wl2.Forbid("colour")
+	c.AddWordList(wl1)
+	c.AddWordList(wl2)
+
+	if c.Spell("colour") {
+		t.Error("Spell(colour) = true, want false (forbidden)")
+	}
+
+	suggester := NewLevenshteinSuggester(LevenshteinOptions{MaxDistance: 3})
+	if err := gs.SetSuggester(suggester); err != nil {
+		t.Fatalf("SetSuggester: %v", err)
+	}
+	suggestions, err := c.Suggest("color", 10)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	for _, s := range suggestions {
+		if s.Word == "colour" {
+			t.Errorf("Suggest returned forbidden word %q", s.Word)
+		}
+	}
+}
+
 func TestCheckerRemoveWordList(t *testing.T) {
 	c := NewChecker(makeTestGoSpell(t))
 	wl := &WordList{}

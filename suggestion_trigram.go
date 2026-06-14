@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/agnivade/levenshtein"
 )
@@ -63,7 +64,7 @@ func (s *TrigramSuggester) Init(src SuggestionSource) error {
 		grams = dedupeSortedUint64Trigram(grams)
 
 		s.wordGramCount[i] = len(grams)
-		s.wordLen[i] = len(word)
+		s.wordLen[i] = utf8.RuneCountInString(word)
 		for _, gram := range grams {
 			s.postings[gram] = append(s.postings[gram], i)
 		}
@@ -113,7 +114,7 @@ func (s *TrigramSuggester) Suggest(word string, limit int) ([]Suggestion, error)
 		if shared == 0 {
 			continue
 		}
-		if s.opts.MaxLengthDiff >= 0 && absIntLocal(s.wordLen[id]-len(word)) > s.opts.MaxLengthDiff {
+		if s.opts.MaxLengthDiff >= 0 && absIntLocal(s.wordLen[id]-utf8.RuneCountInString(word)) > s.opts.MaxLengthDiff {
 			continue
 		}
 

@@ -711,6 +711,9 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %q expected number", parts[1])
 			}
 			aff.CompoundMin = int(val)
+			if aff.CompoundMin < 1 {
+				aff.CompoundMin = 1
+			}
 		case "ONLYINCOMPOUND":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("ONLYINCOMPOUND stanza had %d fields, expected 2", len(parts))
@@ -737,7 +740,9 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			}
 			val, err := strconv.ParseInt(parts[1], 10, 64)
 			if err == nil {
-				aff.CompoundRule = make([]string, 0, val)
+				if len(aff.CompoundRule) == 0 {
+					aff.CompoundRule = make([]string, 0, val)
+				}
 			} else {
 				aff.CompoundRule = append(aff.CompoundRule, parts[1])
 				for _, token := range aff.compoundRuleTokens(parts[1]) {

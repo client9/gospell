@@ -3,6 +3,7 @@ package gospell
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type wordCase int
@@ -54,7 +55,8 @@ func caseStyle(word string) wordCase {
 func caseVariations(word string, style wordCase) []string {
 	switch style {
 	case allLower:
-		return []string{word, strings.ToUpper(word[0:1]) + word[1:], strings.ToUpper(word)}
+		_, size := utf8.DecodeRuneInString(word)
+		return []string{word, strings.ToUpper(word[:size]) + word[size:], strings.ToUpper(word)}
 	case allUpper:
 		return []string{strings.ToUpper(word)}
 	default:

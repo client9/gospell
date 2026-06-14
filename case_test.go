@@ -34,6 +34,9 @@ func TestCaseVariations(t *testing.T) {
 		want []string
 	}{
 		{"that's", []string{"that's", "That's", "THAT'S"}},
+		// Multi-byte UTF-8 first rune: title-case must not slice on bytes.
+		{"über", []string{"über", "Über", "ÜBER"}},
+		{"ñoño", []string{"ñoño", "Ñoño", "ÑOÑO"}},
 	}
 	for pos, tt := range cases {
 		got := caseVariations(tt.word, caseStyle(tt.word))

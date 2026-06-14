@@ -85,6 +85,16 @@ func (c *Checker) Suggest(word string, limit int) ([]Suggestion, error) {
 			if _, ok := seen[w]; ok {
 				continue
 			}
+			forbidden := false
+			for _, fl := range c.lists {
+				if fl.IsForbidden(w) {
+					forbidden = true
+					break
+				}
+			}
+			if forbidden {
+				continue
+			}
 			seen[w] = struct{}{}
 			dist := levenshtein.ComputeDistance(word, w)
 			results = append(results, Suggestion{Word: w, Score: dist})
