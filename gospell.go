@@ -52,7 +52,7 @@ type GoSpell struct {
 	checkCompoundTriple bool
 	simplifiedTriple    bool
 	checkCompoundRep    bool
-	breakEnabled        bool
+	breakPatterns       []string
 }
 
 // InputConversion does any character substitution before checking
@@ -203,16 +203,34 @@ func (s *GoSpell) Spell(word string) bool {
 	// e.g. "london" even when "London" is in the dictionary.
 	switch caseStyle(word) {
 	case titleCase:
-		return s.spellExact(strings.ToLower(word))
-	case allUpper:
 		lower := strings.ToLower(word)
-		if s.spellExact(lower) {
+		// Only accept the lowercase form if its title-case reconstruction
+		// matches the query. This rejects "İmply" when "imply" is in the dict
+		// because ToTitle("imply") = "Imply" ≠ "İmply".
+		r, size := utf8.DecodeRuneInString(lower)
+		if string(unicode.ToUpper(r))+lower[size:] == word && s.spellExact(lower) {
 			return true
 		}
-		// title form: uppercase the first byte, lowercase the rest
-		if len(lower) > 0 {
-			return s.spellExact(strings.ToUpper(lower[:1]) + lower[1:])
+	case allUpper:
+		lower := strings.ToLower(word)
+		// Guard: only accept if ToUpper(lower)==word so "İMPLY" (wrong caps)
+		// isn't accepted just because "imply" is in the dict.
+		if strings.ToUpper(lower) == word && s.spellExact(lower) {
+			return true
 		}
+		// Title form: original first rune (already uppercase) + lowercase rest.
+		// Using the original rune preserves diacritics like İ (U+0130) that
+		// would be lost by round-tripping through ToLower then ToUpper.
+		if _, size := utf8.DecodeRuneInString(word); size > 0 {
+			if s.spellExact(word[:size] + strings.ToLower(word[size:])) {
+				return true
+			}
+		}
+	}
+
+	// Hunspell strips trailing periods and retries (abbreviation handling).
+	if strings.HasSuffix(word, ".") {
+		return s.Spell(strings.TrimRight(word, "."))
 	}
 	return false
 }
@@ -246,24 +264,94 @@ func (s *GoSpell) spellExact(word string) bool {
 	if s.simplifiedTriple && s.spellSimplifiedTriple(word) {
 		return true
 	}
-	// Default BREAK behavior: split at hyphens and accept if each part is valid.
-	if s.breakEnabled && strings.ContainsRune(word, '-') {
-		parts := strings.Split(word, "-")
-		allOK := true
-		for _, p := range parts {
-			if p == "" {
-				continue
+	if len(s.breakPatterns) > 0 && s.spellBreak(word, 0) {
+		return true
+	}
+	return false
+}
+
+// spellBreak recursively tries all BREAK patterns against word.
+// Middle patterns (e.g. "-") try every occurrence; "^X" strips a leading X;
+// "X$" strips a trailing X.  Each resulting sub-word is checked with
+// spellExact (which will recurse back into spellBreak as needed).
+func (s *GoSpell) spellBreak(word string, depth int) bool {
+	if depth > 10 {
+		return false
+	}
+	for _, pat := range s.breakPatterns {
+		switch {
+		case strings.HasPrefix(pat, "^"):
+			pfx := pat[1:]
+			if len(word) > len(pfx) && strings.HasPrefix(word, pfx) {
+				rest := word[len(pfx):]
+				if s.spellExact(rest) || s.spellBreak(rest, depth+1) {
+					return true
+				}
 			}
-			if !s.spellExact(p) {
-				allOK = false
-				break
+		case strings.HasSuffix(pat, "$"):
+			sfx := pat[:len(pat)-1]
+			if len(word) > len(sfx) && strings.HasSuffix(word, sfx) {
+				prefix := word[:len(word)-len(sfx)]
+				if s.spellExact(prefix) || s.spellBreak(prefix, depth+1) {
+					return true
+				}
 			}
-		}
-		if allOK {
-			return true
+		default:
+			// Try every non-edge occurrence so e.g. "e-mail-foo" splits
+			// at the second hyphen ("e-mail" | "foo") not just the first.
+			offset := 0
+			for offset < len(word) {
+				idx := strings.Index(word[offset:], pat)
+				if idx < 0 {
+					break
+				}
+				absIdx := offset + idx
+				rightStart := absIdx + len(pat)
+				// Both sides must be non-empty.
+				if absIdx == 0 || rightStart >= len(word) {
+					offset = absIdx + len(pat)
+					continue
+				}
+				left := word[:absIdx]
+				right := word[rightStart:]
+				if (s.spellExact(left) || s.spellBreak(left, depth+1)) &&
+					(s.spellExact(right) || s.spellBreak(right, depth+1)) {
+					return true
+				}
+				offset = absIdx + len(pat)
+			}
 		}
 	}
 	return false
+}
+
+// stripDicMorphFields removes hunspell morphological data fields from a raw
+// .dic entry line.  Morph fields have a two-lowercase-letter tag followed
+// immediately by ":" (e.g. ph:, st:, po:, is:).  Everything from the first
+// such field onward is dropped; the remaining tokens are rejoined with a
+// single space, preserving multi-word entries like "foo bar".
+func stripDicMorphFields(line string) string {
+	fields := strings.Fields(line)
+	for i, f := range fields {
+		if len(f) >= 3 && f[0] >= 'a' && f[0] <= 'z' && f[1] >= 'a' && f[1] <= 'z' && f[2] == ':' {
+			return strings.Join(fields[:i], " ")
+		}
+	}
+	return line
+}
+
+// breakPatterns returns the effective BREAK patterns for a dictConfig.
+// When BREAK 0 is set, returns nil (disabled).
+// When explicit patterns are given they replace the hunspell defaults.
+// Otherwise the defaults ("-", "^-", "-$") are used.
+func breakPatterns(aff *dictConfig) []string {
+	if !aff.BreakEnabled {
+		return nil
+	}
+	if len(aff.BreakPatterns) > 0 {
+		return aff.BreakPatterns
+	}
+	return []string{"-", "^-", "-$"}
 }
 
 func (s *GoSpell) surfaceAllowsStandalone(word string) (bool, bool) {
@@ -456,8 +544,12 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		if s.compoundFinalPart(suffix, wholeStyle) {
 			return []string{prefix, suffix}, true
 		}
-		if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false); ok {
-			return append([]string{prefix}, rest...), true
+		// Don't recurse into a suffix that is itself a blocked compound
+		// (e.g. "forbiddenroot" blocked by the "forbidden root" dic entry).
+		if _, blocked := s.blockedCompound[suffix]; !blocked {
+			if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false); ok {
+				return append([]string{prefix}, rest...), true
+			}
 		}
 	}
 	return nil, false
@@ -821,13 +913,9 @@ func (s *GoSpell) surfaceAllowsCompound(word string, pos compoundPosition) (bool
 }
 
 func compoundEntryFlags(line string, affix *dictConfig) []string {
-	idx := strings.Index(line, "/")
-	if idx == -1 {
+	_, flags, hasFlags := dicWordSplit(line)
+	if !hasFlags {
 		return nil
-	}
-	_, flags, found := strings.Cut(line[idx+1:], "/")
-	if !found {
-		flags = line[idx+1:]
 	}
 	flags = affix.normalizeFlags(flags)
 	tokens, err := affix.splitFlags(flags)
@@ -967,12 +1055,12 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		simplifiedTriple:    affix.SimplifiedTriple,
 		checkCompoundRep:    affix.CheckCompoundRep,
 		repReplacements:     affix.Replacements,
-		breakEnabled:        affix.BreakEnabled,
+		breakPatterns:       breakPatterns(affix),
 	}
 
 	var words []expandedWord
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := stripDicMorphFields(scanner.Text())
 		rawFlags := compoundEntryFlags(line, affix)
 		compoundOnlyEntry := false
 		for _, flag := range rawFlags {
@@ -986,10 +1074,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			return nil, fmt.Errorf("unable to process %q: %s", line, err)
 		}
 		words = expanded
-		base := line
-		if idx := strings.Index(base, "/"); idx >= 0 {
-			base = base[:idx]
-		}
+		base, _, _ := dicWordSplit(line)
 		base = strings.TrimSpace(base)
 		// wordFlags stores the root dic-entry flags for the base word.
 		// expandStateRecords merges same-spelling records (OR-ing state), so we

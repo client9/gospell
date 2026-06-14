@@ -195,6 +195,7 @@ type dictConfig struct {
 	SimplifiedTriple       bool
 	CheckCompoundRep       bool
 	BreakEnabled           bool // false only when BREAK 0 is set
+	BreakPatterns          []string
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
@@ -211,16 +212,33 @@ func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
 	return out, nil
 }
 
-func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
-	idx := strings.Index(wordAffix, "/")
-
+// dicWordSplit splits a raw .dic entry into its word and flags components.
+// In hunspell's dic format, "/" separates the word from its flag string, but
+// "\/" inside the word is an escaped literal slash.  A bare "/" entry (the
+// word is the slash character itself) is returned as word="/" with no flags.
+func dicWordSplit(entry string) (word, flags string, hasFlags bool) {
+	// Replace every "\/" with a NUL placeholder so a plain "/" is unambiguous.
+	working := strings.ReplaceAll(entry, "\\/", "\x00")
+	idx := strings.Index(working, "/")
 	if idx == -1 {
-		return []expandedWord{{word: wordAffix}}, nil
+		return strings.ReplaceAll(working, "\x00", "/"), "", false
 	}
-	if idx == 0 || idx+1 == len(wordAffix) {
+	// A lone "/" with nothing before or after → the word is "/" itself.
+	if idx == 0 && len(working) == 1 {
+		return "/", "", false
+	}
+	return strings.ReplaceAll(working[:idx], "\x00", "/"), working[idx+1:], true
+}
+
+func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
+	word, keyString, hasFlags := dicWordSplit(wordAffix)
+
+	if !hasFlags {
+		return []expandedWord{{word: word}}, nil
+	}
+	if word == "" || keyString == "" {
 		return nil, fmt.Errorf("slash char found in first or last position")
 	}
-	word, keyString := wordAffix[:idx], wordAffix[idx+1:]
 	keys, err := a.splitFlags(a.normalizeFlags(keyString))
 	if err != nil {
 		return nil, err
@@ -826,12 +844,18 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 		case "CHECKCOMPOUNDREP":
 			aff.CheckCompoundRep = true
 		case "BREAK":
-			// BREAK 0 disables the default hyphen-splitting behavior.
-			if len(parts) == 2 && parts[1] == "0" {
-				aff.BreakEnabled = false
+			if len(parts) < 2 {
+				continue
 			}
-			// Other BREAK patterns are accepted but not stored; we only
-			// implement the default "-" split.
+			if parts[1] == "0" {
+				aff.BreakEnabled = false
+				continue
+			}
+			// Count line (e.g. "BREAK 2") — skip, but don't treat as a pattern.
+			if _, err := strconv.Atoi(parts[1]); err == nil {
+				continue
+			}
+			aff.BreakPatterns = append(aff.BreakPatterns, parts[1])
 		case "NEEDAFFIX", "PSEUDOROOT":
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("NEEDAFFIX stanza had %d fields, expected 2", len(parts))
@@ -849,7 +873,8 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 		case "KEY":
 			// no supported. This is for spelling suggestions
 		default:
-			return nil, fmt.Errorf("unknown command %v", parts)
+			// unknown/unsupported directives are silently ignored, matching
+			// hunspell's own lenient aff-file parsing behavior
 		}
 	}
 
