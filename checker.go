@@ -53,7 +53,7 @@ func (c *Checker) Spell(word string) bool {
 			return true
 		}
 	}
-	return c.base.Spell(word)
+	return c.base.spellConverted(word)
 }
 
 // Suggest returns spelling suggestions. The base dictionary suggester provides

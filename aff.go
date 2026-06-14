@@ -161,41 +161,40 @@ type rule struct {
 type dictConfig struct {
 	// AffixMap stores pointers so appending rules in newDictConfig never
 	// requires a map write-back after each rule line.
-	AffixMap               map[string]*affix
-	compoundMap            map[string][]string
-	compoundBeginWords     map[string]struct{}
-	compoundMiddleWords    map[string]struct{}
-	compoundEndWords       map[string]struct{}
-	compoundForbiddenWords map[string]struct{}
-	compoundOnlyWords      map[string]struct{}
-	forceUcaseWords        map[string]struct{}
-	Flag                   string
-	TryChars               string
-	WordChars              string
-	NoSuggestFlag          string
-	NeedAffixFlag          string
-	ForbiddenWordFlag      string
-	ForceUcaseFlag         string
-	CompoundBeginFlag      string
-	CompoundMiddleFlag     string
-	CompoundEndFlag        string
-	CompoundFlag           string
-	CompoundPermitFlag     string
-	CompoundForbidFlag     string
-	CompoundOnly           string
-	IconvReplacements      []string
-	Replacements           [][2]string
-	CompoundRule           []string
-	checkCompoundPatterns  []compoundPatternRule
-	flagMode               flagMode
-	CompoundMin            int
-	CheckCompoundCase      bool
-	CheckCompoundDup       bool
-	CheckCompoundTriple    bool
-	SimplifiedTriple       bool
-	CheckCompoundRep       bool
-	BreakEnabled           bool // false only when BREAK 0 is set
-	BreakPatterns          []string
+	AffixMap              map[string]*affix
+	compoundMap           map[string][]string
+	compoundBeginWords    map[string]struct{}
+	compoundMiddleWords   map[string]struct{}
+	compoundEndWords      map[string]struct{}
+	compoundOnlyWords     map[string]struct{}
+	forceUcaseWords       map[string]struct{}
+	Flag                  string
+	TryChars              string
+	WordChars             string
+	NoSuggestFlag         string
+	NeedAffixFlag         string
+	ForbiddenWordFlag     string
+	ForceUcaseFlag        string
+	CompoundBeginFlag     string
+	CompoundMiddleFlag    string
+	CompoundEndFlag       string
+	CompoundFlag          string
+	CompoundPermitFlag    string
+	CompoundForbidFlag    string
+	CompoundOnly          string
+	IconvReplacements     []string
+	Replacements          [][2]string
+	CompoundRule          []string
+	checkCompoundPatterns []compoundPatternRule
+	flagMode              flagMode
+	CompoundMin           int
+	CheckCompoundCase     bool
+	CheckCompoundDup      bool
+	CheckCompoundTriple   bool
+	SimplifiedTriple      bool
+	CheckCompoundRep      bool
+	BreakEnabled          bool // false only when BREAK 0 is set
+	BreakPatterns         []string
 }
 
 // expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
@@ -418,6 +417,9 @@ func mergeFlags(mode flagMode, parts ...string) string {
 		case flagNum:
 			items = strings.Split(part, ",")
 		case flagLong:
+			// Each flag is exactly 2 bytes. An odd-length part is malformed;
+			// the trailing byte is silently ignored here. Callers that need
+			// strict validation should use splitFlags, which returns an error.
 			items = make([]string, 0, len(part)/2)
 			for i := 0; i+1 < len(part); i += 2 {
 				items = append(items, part[i:i+2])
@@ -555,7 +557,7 @@ func flagContains(flags, want string, mode flagMode) bool {
 		if len(want) != 2 {
 			return false
 		}
-		for i := 0; i+1 <= len(flags); i += 2 {
+		for i := 0; i+1 < len(flags); i += 2 {
 			if flags[i:i+2] == want {
 				return true
 			}
@@ -643,18 +645,17 @@ type matcherCacheKey struct {
 
 func newDictConfig(file io.Reader) (*dictConfig, error) {
 	aff := dictConfig{
-		Flag:                   "ASCII",
-		flagMode:               flagASCII,
-		AffixMap:               make(map[string]*affix),
-		compoundMap:            make(map[string][]string),
-		compoundBeginWords:     make(map[string]struct{}),
-		compoundMiddleWords:    make(map[string]struct{}),
-		compoundEndWords:       make(map[string]struct{}),
-		compoundForbiddenWords: make(map[string]struct{}),
-		compoundOnlyWords:      make(map[string]struct{}),
-		forceUcaseWords:        make(map[string]struct{}),
-		CompoundMin:            3,
-		BreakEnabled:           true,
+		Flag:                "ASCII",
+		flagMode:            flagASCII,
+		AffixMap:            make(map[string]*affix),
+		compoundMap:         make(map[string][]string),
+		compoundBeginWords:  make(map[string]struct{}),
+		compoundMiddleWords: make(map[string]struct{}),
+		compoundEndWords:    make(map[string]struct{}),
+		compoundOnlyWords:   make(map[string]struct{}),
+		forceUcaseWords:     make(map[string]struct{}),
+		CompoundMin:         3,
+		BreakEnabled:        true,
 	}
 	// Many affix rules share the same condition pattern (e.g. ".", "e",
 	// "[^aeiou]y"). Cache parsed matchers so each unique (pattern, type) pair

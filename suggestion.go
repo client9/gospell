@@ -3,6 +3,7 @@ package gospell
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/agnivade/levenshtein"
 )
@@ -87,7 +88,7 @@ func (s *LevenshteinSuggester) Suggest(word string, limit int) ([]Suggestion, er
 		if candidate == word {
 			continue
 		}
-		if s.opts.MaxDistance >= 0 && absIntLocal(len(candidate)-len(word)) > s.opts.MaxDistance {
+		if s.opts.MaxDistance >= 0 && absIntLocal(utf8.RuneCountInString(candidate)-utf8.RuneCountInString(word)) > s.opts.MaxDistance {
 			continue
 		}
 

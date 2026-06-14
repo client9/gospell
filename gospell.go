@@ -28,7 +28,6 @@ type GoSpell struct {
 	surfaces            map[string][]surfaceEntry
 	wordFlags           map[string]map[string]struct{}
 	wordEntryCount      map[string]int
-	onlyCompoundCount   map[string]int
 	compoundOnlyRoot    map[string]struct{}
 	compoundOnly        map[string]struct{}
 	compoundBegin       map[string]struct{}
@@ -182,6 +181,12 @@ func (s *GoSpell) isWordForbidden(word string) bool {
 // Spell reports whether word is correctly spelled.
 func (s *GoSpell) Spell(word string) bool {
 	word = s.InputConversion([]byte(word))
+	return s.spellConverted(word)
+}
+
+// spellConverted is the inner spell check after ICONV has already been applied.
+// Checker.Spell calls this directly so ICONV is not applied a second time.
+func (s *GoSpell) spellConverted(word string) bool {
 	// FORBIDDENWORD entries must block the word even when a case-folded form
 	// would otherwise be accepted (e.g. "Kg" forbidden while "kg" is valid).
 	if s.isWordForbidden(word) {
@@ -191,7 +196,7 @@ func (s *GoSpell) Spell(word string) bool {
 	if strings.ContainsRune(word, ' ') {
 		parts := strings.Fields(word)
 		for _, p := range parts {
-			if !s.Spell(p) {
+			if !s.spellConverted(p) {
 				return false
 			}
 		}
@@ -240,7 +245,7 @@ func (s *GoSpell) Spell(word string) bool {
 
 	// Hunspell strips one trailing period and retries (abbreviation handling).
 	if strings.HasSuffix(word, ".") {
-		return s.Spell(strings.TrimSuffix(word, "."))
+		return s.spellConverted(strings.TrimSuffix(word, "."))
 	}
 	return false
 }
@@ -521,11 +526,29 @@ func (s *GoSpell) spellSandhiCompound(word string) bool {
 				continue
 			}
 			// Verify flag constraints from the rule.
-			if rule.leftFlag != "" && !s.wordHasFlag(left, rule.leftFlag) {
-				continue
+			// Use wordOrRootHasFlag for non-stemOnly rules so affix-derived
+			// forms are checked too, matching compoundPatternBlocks behaviour.
+			if rule.leftFlag != "" {
+				if rule.leftStemOnly {
+					if !s.wordHasFlag(left, rule.leftFlag) {
+						continue
+					}
+				} else {
+					if !s.wordOrRootHasFlag(left, rule.leftFlag) {
+						continue
+					}
+				}
 			}
-			if rule.rightFlag != "" && !s.wordHasFlag(right, rule.rightFlag) {
-				continue
+			if rule.rightFlag != "" {
+				if rule.rightStemOnly {
+					if !s.wordHasFlag(right, rule.rightFlag) {
+						continue
+					}
+				} else {
+					if !s.wordOrRootHasFlag(right, rule.rightFlag) {
+						continue
+					}
+				}
 			}
 			if s.compoundStartPart(left) && s.compoundFinalPart(right, wholeStyle) {
 				return true
@@ -1044,7 +1067,6 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		surfaces:            make(map[string][]surfaceEntry),
 		wordFlags:           make(map[string]map[string]struct{}),
 		wordEntryCount:      make(map[string]int),
-		onlyCompoundCount:   make(map[string]int),
 		compoundOnlyRoot:    make(map[string]struct{}),
 		compoundOnly:        affix.compoundOnlyWords,
 		compoundBegin:       affix.compoundBeginWords,
@@ -1121,7 +1143,6 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		}
 		if compoundOnlyEntry {
 			if base != "" {
-				gs.onlyCompoundCount[base]++
 				gs.compoundOnlyRoot[base] = struct{}{}
 			}
 			for _, rec := range words {

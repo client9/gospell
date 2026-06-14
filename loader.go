@@ -75,11 +75,10 @@ func NewWordListFromDic(r io.Reader) (*WordList, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// Strip affix flags and any trailing comment.
-		if idx := strings.IndexByte(line, '/'); idx >= 0 {
-			line = line[:idx]
-		}
-		line = strings.TrimSpace(line)
+		// Strip affix flags using dicWordSplit so escaped slashes (\/) in the
+		// word (e.g. TCP\/IP) are handled correctly.
+		word, _, _ := dicWordSplit(line)
+		line = strings.TrimSpace(word)
 		if line != "" {
 			wl.allowed[line] = struct{}{}
 		}
