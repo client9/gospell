@@ -1,0 +1,51 @@
+# Where can I get English dictionaries?
+
+WIP
+
+
+The world of spelling dictionaries is surprisingly complicated, as
+"lists of words" are frequently proprietary and with conflicting
+software licenses.
+
+### Kevin Atkinson
+
+[Kevin Atkinson](http://www.kevina.org)
+maintains many open source lists via
+the [SCOWL](http://wordlist.aspell.net) project.  The source code and
+raw lists are available on
+[GitHub `kevina/wordlist`](https://github.com/kevina/wordlist)
+
+#### Marco A.G.Pinto
+
+Marco maintains the released dictionaries for Firefox and Apache Open
+Office.  The word lists appears to be actively updated.
+
+https://github.com/marcoagpinto/aoo-mozilla-en-dict
+
+#### Open Office
+
+http://extensions.openoffice.org/en/project/english-dictionaries-apache-openoffice
+
+The downloaded file has a `.oxt` extension but it's a compressed `tar`
+file.  Extract the files using:
+
+```
+mkdir dict-en
+cd dict-en
+tar -xzf ../dict-en.oxt
+```
+
+#### Chromium
+
+The Chrome/Chromium browser uses Hunspell and it's source tree
+contains various up-to-date dictionaries, some with additional words.  You can view them at
+[chromium.googlesource.com](https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+/master)
+and you can check them out locally via
+
+```bash
+git clone --depth=1 https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries
+```
+
+More information can be found in the [chromium developer guide](https://www.chromium.org/developers/how-tos/editing-the-spell-checking-dictionaries)
+
+
