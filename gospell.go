@@ -39,6 +39,9 @@ type GoSpell struct {
 	compoundEnd         map[string]struct{}
 	forceUcaseWords     map[string]struct{}
 	blockedCompound     map[string]struct{}
+	affix               *dictConfig
+	entriesByRoot       map[string][]dictionaryEntry
+	lazySurfaceChecked  map[string]struct{}
 	compoundBeginFlag   string
 	compoundMiddleFlag  string
 	compoundEndFlag     string
@@ -56,9 +59,6 @@ type GoSpell struct {
 	checkCompoundTriple bool
 	simplifiedTriple    bool
 	checkCompoundRep    bool
-	affix               *dictConfig
-	entriesByRoot       map[string][]dictionaryEntry
-	lazySurfaceChecked  map[string]struct{}
 }
 
 type dictionaryEntry struct {

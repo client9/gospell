@@ -11,9 +11,9 @@ type Diff struct {
 	Path            string
 	Original        string
 	Line            string
-	LineNum         int
-	Suggestions     []string
 	SuggestionsText string
+	Suggestions     []string
+	LineNum         int
 }
 
 // SpellFile spell-checks raw bytes treated as plain text.
