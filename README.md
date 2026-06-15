@@ -44,7 +44,7 @@ import (
 )
 
 func main() {
-	gs, err := gospell.NewGoSpell("hunspell-en_US-2026/en_US.aff", "hunspell-en_US-2026/en_US.dic")
+	gs, err := gospell.NewGoSpell("hunspell-en_US/en_US.aff", "hunspell-en_US/en_US.dic")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,7 +61,7 @@ generates common typo mutations first, then falls back to an n-gram root scan
 that expands only the best matching roots.
 
 ```go
-gs, err := gospell.NewGoSpell("hunspell-en_US-2026/en_US.aff", "hunspell-en_US-2026/en_US.dic")
+gs, err := gospell.NewGoSpell("hunspell-en_US/en_US.aff", "hunspell-en_US/en_US.dic")
 if err != nil {
 	log.Fatal(err)
 }
@@ -130,7 +130,7 @@ The current first pass assumes English and a QWERTY keyboard:
 That keeps startup cost near zero while still finding common typos such as
 missing letters, doubled letters, transpositions, and near-key substitutions.
 
-See [`docs/mutation-suggestions.md`](/Users/nickg/projects/gospell/docs/mutation-suggestions.md)
+See [`docs/mutation-suggestions.md`](docs/mutation-suggestions.md)
 for a longer explanation of the approach and tradeoffs.
 
 ## Word Lists
@@ -198,14 +198,14 @@ This package understands the Hunspell dictionary format and supports:
 - custom word lists
 
 For a feature checklist and compatibility matrix, see
-[`docs/hunspell-compatibility.md`](/Users/nickg/projects/gospell/docs/hunspell-compatibility.md).
+[`docs/hunspell-compatibility.md`](docs/hunspell-compatibility.md).
 
 ## Dictionary Files
 
 The repository includes an English Hunspell dictionary used by tests and benchmarks:
 
-- `hunspell-en_US-2026/en_US.aff`
-- `hunspell-en_US-2026/en_US.dic`
+- `hunspell-en_US/en_US.aff`
+- `hunspell-en_US/en_US.dic`
 
 ## Contributing
 
