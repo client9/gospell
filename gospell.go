@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-var numericTokenRegexp = regexp.MustCompile("^([0-9]+[.,-]?)+$")
+var numericTokenRegexp = regexp.MustCompile(`^([\p{Nd}]+[.,-]?)+$`)
 
 type iconvRule struct {
 	old string

@@ -1096,6 +1096,14 @@ GB
 		{"100mi", false},
 		{"0xFF", false},
 		{"0x12ff", false},
+		// Arabic-Indic digits (U+0660–U+0669)
+		{"٠١٢٣٤٥٦٧٨٩", true},
+		{"١٢٣", true},
+		// Extended Arabic-Indic digits (U+06F0–U+06F9)
+		{"۰۱۲۳۴۵۶۷۸۹", true},
+		{"۱۲۳", true},
+		// mixed Unicode digits and ASCII letters must fail
+		{"۱۲abc", false},
 	}
 	for pos, tt := range cases {
 		if gs.Spell(tt.word) != tt.spell {
