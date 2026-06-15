@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## Changed
+
+- Field order in struct `MutationSuggester` changed with [betteralign](https://github.com/dkorunic/betteralign) to save memory.
+ 
 ## Fixed
 
 - Hunspell 353 - ignore unicode numbers not just [0-9]

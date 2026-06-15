@@ -22,9 +22,9 @@ type MutationSuggester struct {
 	spell      func(string) bool
 	tryChars   []rune
 	repRules   [][2]string
-	ngramOnce  sync.Once
 	ngramRoots []mutationNGramRoot
 	opts       MutationOptions
+	ngramOnce  sync.Once
 }
 
 var _ Suggestions = (*MutationSuggester)(nil)
