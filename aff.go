@@ -523,14 +523,10 @@ func mergeFlags(mode flagMode, parts ...string) string {
 		}
 	}
 	sort.Strings(tokens)
-	switch mode {
-	case flagNum:
+	if mode == flagNum {
 		return strings.Join(tokens, ",")
-	case flagLong:
-		return strings.Join(tokens, "")
-	default:
-		return strings.Join(tokens, "")
 	}
+	return strings.Join(tokens, "")
 }
 
 func (a *dictConfig) compoundRuleTokens(rule string) []string {
