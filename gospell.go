@@ -32,7 +32,6 @@ type GoSpell struct {
 	dictByRuneLen       map[int][]string
 	surfaces            map[string][]surfaceEntry
 	wordFlags           map[string]map[string]struct{}
-	compoundOnlyRoot    map[string]struct{}
 	compoundOnly        map[string]struct{}
 	compoundBegin       map[string]struct{}
 	compoundMiddle      map[string]struct{}
@@ -678,18 +677,9 @@ func (s *GoSpell) compoundFinalPart(word string, wholeStyle wordCase) bool {
 		}
 	}
 	if ok, found := s.surfaceAllowsCompound(word, compoundPositionEnd); found {
-		if ok {
-			return true
-		}
-		// Surface entry found but end-position not set. Words whose DIC entry
-		// carries ONLY the ONLYINCOMPOUND flag (no explicit position flags) are
-		// recorded in compoundOnlyRoot and are valid at all compound positions.
-		_, inOnlyRoot := s.compoundOnlyRoot[word]
-		return inOnlyRoot
+		return ok
 	}
-	_, inOnlyRoot := s.compoundOnlyRoot[word]
 	return s.compoundSetContains(s.compoundEnd, word) ||
-		inOnlyRoot ||
 		s.wordHasFlag(word, s.compoundEndFlag)
 }
 
@@ -1093,7 +1083,8 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 		entry.StandaloneAllowed = false
 		entry.CompoundStartAllowed = true
 		entry.CompoundMiddleAllowed = true
-		entry.CompoundEndAllowed = false
+		// ONLYINCOMPOUND without explicit position flags is valid at all positions.
+		entry.CompoundEndAllowed = !hasExplicitCompoundPosition(rec.flags, affix)
 	}
 	if rec.mask&compoundBegin != 0 || hasFlagToken(rawFlags, affix.CompoundBeginFlag) {
 		entry.CompoundStartAllowed = true
@@ -1167,8 +1158,7 @@ func (s *GoSpell) addRootEntry(line string, affix *dictConfig) error {
 			}
 		}
 	}
-	if rec.compoundOnly && !hasExplicitCompoundPosition(rec.flags, affix) {
-		s.compoundOnlyRoot[base] = struct{}{}
+	if rec.compoundOnly {
 		if s.compoundOnly == nil {
 			s.compoundOnly = make(map[string]struct{})
 		}
@@ -1237,12 +1227,6 @@ func (s *GoSpell) ensureLazySurface(word string) {
 			}
 			seenSurface[key] = struct{}{}
 			s.surfaces[word] = append(s.surfaces[word], buildSurfaceEntry(word, entry.rawFlags, s.affix, rec))
-			if rec.compoundOnly && !hasExplicitCompoundPosition(rec.flags, s.affix) {
-				if s.compoundOnlyRoot == nil {
-					s.compoundOnlyRoot = make(map[string]struct{})
-				}
-				s.compoundOnlyRoot[word] = struct{}{}
-			}
 			if strings.ContainsRune(word, ' ') {
 				if s.blockedCompound == nil {
 					s.blockedCompound = make(map[string]struct{})
@@ -1403,7 +1387,6 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		dict:                make(map[string]struct{}),
 		surfaces:            make(map[string][]surfaceEntry),
 		wordFlags:           make(map[string]map[string]struct{}),
-		compoundOnlyRoot:    make(map[string]struct{}),
 		compoundOnly:        affix.compoundOnlyWords,
 		compoundBegin:       affix.compoundBeginWords,
 		compoundMiddle:      affix.compoundMiddleWords,

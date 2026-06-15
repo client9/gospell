@@ -906,9 +906,6 @@ pseudo/OAB
 	if err != nil {
 		t.Fatalf("Unable to create GoSpell: %v", err)
 	}
-	if _, ok := gs.compoundOnlyRoot["pseudo"]; !ok {
-		t.Fatalf("pseudo not recorded as a compound-only root surface")
-	}
 	cases := []struct {
 		word string
 		want bool
