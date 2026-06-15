@@ -609,7 +609,6 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 	}
 	for i := s.compoundMin; i <= len(runes)-s.compoundMin; i++ {
 		prefix := string(runes[:i])
-		suffix := string(runes[i:])
 		if first {
 			if !s.compoundStartPart(prefix) {
 				continue
@@ -617,6 +616,8 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		} else if !s.compoundMiddlePart(prefix) {
 			continue
 		}
+		// Prefix is eligible — now materialise the suffix string.
+		suffix := string(runes[i:])
 		// Per-boundary checks: compare prefix against the raw suffix string
 		// (not its decomposed parts) so that CHECKCOMPOUNDDUP and CHECKCOMPOUNDCASE
 		// apply at each recursion level independently.
@@ -634,8 +635,10 @@ func (s *GoSpell) spellCompoundParts(runes []rune, wholeStyle wordCase, first bo
 		}
 		// Don't recurse into a suffix that is itself a blocked compound
 		// (e.g. "forbiddenroot" blocked by the "forbidden root" dic entry).
+		// Pass runes[i:] directly — suffix was just created from it, no need to
+		// convert the string back to []rune.
 		if _, blocked := s.blockedCompound[suffix]; !blocked {
-			if rest, ok := s.spellCompoundParts([]rune(suffix), wholeStyle, false, skipTriple); ok {
+			if rest, ok := s.spellCompoundParts(runes[i:], wholeStyle, false, skipTriple); ok {
 				return append([]string{prefix}, rest...), true
 			}
 		}
