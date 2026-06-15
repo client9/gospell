@@ -961,15 +961,24 @@ func oneEditAway(a, b string) bool {
 	}
 	if len(ar) == len(br) {
 		diff := 0
+		first := -1
 		for i := range ar {
 			if ar[i] != br[i] {
 				diff++
-				if diff > 1 {
+				if first < 0 {
+					first = i
+				}
+				if diff > 2 {
 					return false
 				}
 			}
 		}
-		return diff == 1
+		if diff == 1 {
+			return true
+		}
+		// Adjacent transposition: two positions differ and swapping them matches.
+		return diff == 2 && first+1 < len(ar) &&
+			ar[first] == br[first+1] && ar[first+1] == br[first]
 	}
 	if len(ar) > len(br) {
 		ar, br = br, ar

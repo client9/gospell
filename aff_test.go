@@ -2083,6 +2083,39 @@ foo
 	}
 }
 
+func TestCompoundTypoGuardCatchesTransposition(t *testing.T) {
+	// oneEditAway must treat adjacent transpositions as one edit so that
+	// compoundTypoMatchesDict suppresses 3+-part compound splits of transposition
+	// typos. "bac" is a transposition of "abc" and should be rejected even though
+	// it can split as "b"+"a"+"c" (three compound-eligible single letters).
+	sampleAff := `SET UTF-8
+COMPOUNDFLAG A
+COMPOUNDMIN 1
+`
+	sampleDic := `4
+a/A
+b/A
+c/A
+abc
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for _, tt := range []struct {
+		word string
+		want bool
+	}{
+		{"abc", true},  // standalone word
+		{"bac", false}, // transposition of "abc" — compound parse must be suppressed
+		{"cab", true},  // 2 edits from "abc", not a typo — valid 3-part compound
+	} {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("CompoundTypoGuardTransposition %q: got %v want %v", tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestCompoundTypoGuardCatchesInsertionDeletion(t *testing.T) {
 	// compoundTypoMatchesDict must check rl-1 and rl+1 buckets so that
 	// insertion/deletion edits are caught, not just substitutions.
