@@ -377,11 +377,7 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 			}
 			var expanded []expandedWord
 			expanded = af.expand(word, flags, currentState, c, a.flagMode, needsAffix, expanded[:0])
-			nextUsed := make(map[string]struct{}, len(used)+1)
-			for k := range used {
-				nextUsed[k] = struct{}{}
-			}
-			nextUsed[key] = struct{}{}
+			used[key] = struct{}{}
 			for _, ew := range expanded {
 				nextOnly := compoundOnly
 				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
@@ -389,10 +385,11 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 				if nextSuffixCount > suffixCount {
 					nextSuffixChainFlags = ew.explicitFlags
 				}
-				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, nextUsed, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
+				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, used, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
 					return err
 				}
 			}
+			delete(used, key)
 		}
 		return nil
 	}
