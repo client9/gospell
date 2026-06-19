@@ -36,6 +36,17 @@ func Open(name string, paths []string) (*GoSpell, error) {
 	return NewGoSpell(affPath, dicPath)
 }
 
+// AddDic finds a .dic file by searching paths and merges it into gs using
+// AddDictionaryFile. Affix rules from gs are reused, so inflected forms
+// (e.g. "colors" from "color/S") are recognized. The .dic file must be UTF-8.
+func AddDic(gs *GoSpell, name string, paths []string) error {
+	dicPath, err := findSupplement(name, paths)
+	if err != nil {
+		return err
+	}
+	return gs.AddDictionaryFile(dicPath)
+}
+
 // OpenSupplement finds and loads a .dic-only domain supplement (no .aff file)
 // by searching paths in order. The result is a WordList ready to attach to a
 // Checker. Supplement dictionaries extend the vocabulary of a base dictionary

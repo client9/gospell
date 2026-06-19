@@ -1488,3 +1488,61 @@ func NewGoSpell(affFile, dicFile string) (*GoSpell, error) {
 	defer func() { _ = dic.Close() }()
 	return NewGoSpellReader(aff, dic)
 }
+
+// AddDictionaryReader merges an additional Hunspell .dic file into this
+// GoSpell, applying the same affix rules as the base dictionary. The file
+// must be UTF-8 encoded. The word-count header line is optional: if the first
+// line cannot be parsed as an integer it is treated as a word entry.
+//
+// Intended for load-time use; not safe for concurrent calls with Spell or Suggest.
+func (g *GoSpell) AddDictionaryReader(dic io.Reader) error {
+	dicBytes, err := io.ReadAll(dic)
+	if err != nil {
+		return fmt.Errorf("read dic: %w", err)
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(dicBytes))
+	if scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimPrefix(line, "\uFEFF")
+		fields := strings.Fields(line)
+		isCountLine := len(fields) > 0
+		if isCountLine {
+			_, err := strconv.ParseInt(fields[0], 10, 64)
+			isCountLine = err == nil
+		}
+		if !isCountLine && line != "" && !strings.HasPrefix(line, "#") {
+			if err := g.addRootEntry(stripDicMorphFields(line), g.affix); err != nil {
+				return fmt.Errorf("unable to process %q: %w", line, err)
+			}
+		}
+	}
+	for scanner.Scan() {
+		line := stripDicMorphFields(scanner.Text())
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if err := g.addRootEntry(line, g.affix); err != nil {
+			return fmt.Errorf("unable to process %q: %w", line, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	// Rebuild rune-length index used by compound typo matching.
+	g.dictByRuneLen = make(map[int][]string, g.maxWordLen)
+	for w := range g.dict {
+		rl := utf8.RuneCountInString(w)
+		g.dictByRuneLen[rl] = append(g.dictByRuneLen[rl], w)
+	}
+	return nil
+}
+
+// AddDictionaryFile opens dicFile and calls AddDictionaryReader.
+func (g *GoSpell) AddDictionaryFile(dicFile string) error {
+	f, err := os.Open(dicFile)
+	if err != nil {
+		return fmt.Errorf("unable to open dic: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return g.AddDictionaryReader(f)
+}

@@ -133,6 +133,31 @@ missing letters, doubled letters, transpositions, and near-key substitutions.
 See [`docs/mutation-suggestions.md`](docs/mutation-suggestions.md)
 for a longer explanation of the approach and tradeoffs.
 
+## Multiple Dictionaries
+
+A common pattern is to combine a base dictionary with domain-specific vocabulary (medical, legal, technical) that shares the same affix rules. `AddDictionaryReader` and `AddDictionaryFile` merge an additional `.dic` file into an existing `GoSpell`, applying the same affix expansion as the base — so entries like `widget/S` produce both "widget" and "widgets".
+
+This is the key difference from `OpenSupplement`/`NewWordListFromDic`, which strip affix flags and only recognize bare stems.
+
+```go
+gs, err := gospell.NewGoSpell("en_US.aff", "en_US.dic")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Merge a domain-specific dictionary reusing the en_US affix rules.
+if err := gs.AddDictionaryFile("medical.dic"); err != nil {
+    log.Fatal(err)
+}
+
+// Or use AddDic for path-based search:
+if err := gospell.AddDic(gs, "medical", searchPaths); err != nil {
+    log.Fatal(err)
+}
+```
+
+These are load-time operations; call them before using `Spell` or `Suggest` from multiple goroutines.
+
 ## Word Lists
 
 `WordList` is a lightweight overlay of allowed and forbidden words. It does not require rebuilding the base dictionary and can be attached or detached at any time.
@@ -178,6 +203,8 @@ checker.RemoveWordList(doc) // reset for next document
 The main entry points are:
 
 - [`NewGoSpell`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpell) / [`NewGoSpellReader`](https://pkg.go.dev/github.com/client9/gospell#NewGoSpellReader) — load a base dictionary
+- [`(*GoSpell).AddDictionaryFile`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.AddDictionaryFile) / [`AddDictionaryReader`](https://pkg.go.dev/github.com/client9/gospell#GoSpell.AddDictionaryReader) — merge additional `.dic` files with full affix expansion
+- [`AddDic`](https://pkg.go.dev/github.com/client9/gospell#AddDic) — path-search wrapper for `AddDictionaryFile`
 - [`NewChecker`](https://pkg.go.dev/github.com/client9/gospell#NewChecker) — runtime query API wrapping a base dictionary
 - [`(*Checker).Spell`](https://pkg.go.dev/github.com/client9/gospell#Checker.Spell) — spell check against base + all active WordLists
 - [`(*Checker).Suggest`](https://pkg.go.dev/github.com/client9/gospell#Checker.Suggest) — suggestions from base + WordLists
