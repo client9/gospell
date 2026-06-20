@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [v0.9.2] - 2026-16-019
+
 ## Added
 
 - Multiple ".dic" support.
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Fixed
 
 - Hunspell 353 - ignore unicode numbers not just [0-9]
+- improved code coverage
 
 ## [0.9.1] - 2026-06-15
 
