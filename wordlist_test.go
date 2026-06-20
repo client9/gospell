@@ -1,6 +1,8 @@
 package gospell
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -202,5 +204,116 @@ func TestCheckerRemoveWordList(t *testing.T) {
 	c.RemoveWordList(wl)
 	if c.Spell("tempword") {
 		t.Error("Spell(tempword) = true after remove, want false")
+	}
+}
+
+func TestNewWordListFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "custom.txt")
+	if err := os.WriteFile(path, []byte("golang\n*irregardless\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	wl, err := NewWordListFile(path)
+	if err != nil {
+		t.Fatalf("NewWordListFile: %v", err)
+	}
+	if !wl.HasWord("golang") {
+		t.Error("HasWord(golang) = false")
+	}
+	if !wl.IsForbidden("irregardless") {
+		t.Error("IsForbidden(irregardless) = false")
+	}
+}
+
+func TestNewWordListFileNotFound(t *testing.T) {
+	if _, err := NewWordListFile("/no/such/file/here.txt"); err == nil {
+		t.Error("expected error for missing file, got nil")
+	}
+}
+
+func TestCheckerInputConversion(t *testing.T) {
+	aff := "ICONV 1\nICONV th t\n"
+	gs, err := NewGoSpellReader(strings.NewReader(aff), strings.NewReader("1\ntest\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	if got := NewChecker(gs).InputConversion([]byte("thest")); got != "test" {
+		t.Errorf("InputConversion = %q, want %q", got, "test")
+	}
+}
+
+func TestCheckerSuggestZeroLimit(t *testing.T) {
+	got, err := NewChecker(makeTestGoSpell(t)).Suggest("foo", 0)
+	if err != nil {
+		t.Fatalf("Suggest(limit=0): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Suggest(limit=0) = %v, want empty", got)
+	}
+}
+
+func TestCheckerSuggestWordListWordForbiddenByOtherList(t *testing.T) {
+	gs, err := NewGoSpellReader(strings.NewReader(""), strings.NewReader("1\nfoo\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	c := NewChecker(gs)
+	wl1 := &WordList{}
+	wl1.Add("colour")
+	wl2 := &WordList{}
+	wl2.Forbid("colour")
+	c.AddWordList(wl1)
+	c.AddWordList(wl2)
+	suggestions, err := c.Suggest("color", 10)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	for _, s := range suggestions {
+		if s.Word == "colour" {
+			t.Error("Suggest returned WordList word forbidden by another list")
+		}
+	}
+}
+
+func TestCheckerSuggestSkipsQueryWord(t *testing.T) {
+	gs, err := NewGoSpellReader(strings.NewReader(""), strings.NewReader("1\nfoo\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	c := NewChecker(gs)
+	wl := &WordList{}
+	wl.Add("bar")
+	c.AddWordList(wl)
+	for _, s := range func() []Suggestion {
+		s, _ := c.Suggest("bar", 10)
+		return s
+	}() {
+		if s.Word == "bar" {
+			t.Errorf("Suggest returned the query word %q itself", s.Word)
+		}
+	}
+}
+
+func TestCheckerSuggestDeduplicatesWordList(t *testing.T) {
+	gs, err := NewGoSpellReader(strings.NewReader(""), strings.NewReader("2\nfoo\nfob\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	c := NewChecker(gs)
+	wl := &WordList{}
+	wl.Add("foo") // already in base dict, so it lands in `seen`
+	c.AddWordList(wl)
+	suggestions, err := c.Suggest("fop", 10)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	count := 0
+	for _, s := range suggestions {
+		if s.Word == "foo" {
+			count++
+		}
+	}
+	if count > 1 {
+		t.Errorf("Suggest returned %q %d times, want at most 1", "foo", count)
 	}
 }

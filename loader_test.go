@@ -189,3 +189,60 @@ func TestSearchPaths_IncludesSystemDefaults(t *testing.T) {
 		t.Errorf("SearchPaths missing system defaults, got %v", paths)
 	}
 }
+
+func TestAddDicFromFile(t *testing.T) {
+	aff := "SFX S Y 1\nSFX S   0     s .\n"
+	gs, err := NewGoSpellReader(strings.NewReader(aff), strings.NewReader("1\nhello\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	tmp := t.TempDir()
+	dicPath := filepath.Join(tmp, "extra.dic")
+	if err := os.WriteFile(dicPath, []byte("1\nwidget/S\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := AddDic(gs, dicPath, nil); err != nil {
+		t.Fatalf("AddDic: %v", err)
+	}
+	if !gs.Spell("widget") {
+		t.Error("Spell(widget) = false after AddDic")
+	}
+	if !gs.Spell("widgets") {
+		t.Error("Spell(widgets) = false after AddDic (affix expansion)")
+	}
+}
+
+func TestAddDicNotFound(t *testing.T) {
+	if err := AddDic(makeTestGoSpell(t), "no_such_dict", []string{"/nonexistent"}); err == nil {
+		t.Error("expected error for missing supplement, got nil")
+	}
+}
+
+func TestOpenSupplementFromFile(t *testing.T) {
+	tmp := t.TempDir()
+	dicPath := filepath.Join(tmp, "tech.dic")
+	if err := os.WriteFile(dicPath, []byte("2\nkubernetes\nkubectl\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	wl, err := OpenSupplement(dicPath, nil)
+	if err != nil {
+		t.Fatalf("OpenSupplement: %v", err)
+	}
+	if !wl.HasWord("kubernetes") {
+		t.Error("HasWord(kubernetes) = false")
+	}
+}
+
+func TestOpenSupplementNotFound(t *testing.T) {
+	if _, err := OpenSupplement("no_such_supplement", []string{"/nonexistent"}); err == nil {
+		t.Error("expected error for missing supplement, got nil")
+	}
+}
+
+func TestSearchPathsDICPATH(t *testing.T) {
+	t.Setenv("DICPATH", "/custom/dict"+string(filepath.ListSeparator)+"/other/dict")
+	paths := SearchPaths()
+	if paths[0] != "/custom/dict" || paths[1] != "/other/dict" {
+		t.Errorf("SearchPaths with DICPATH: first two = %v, want [/custom/dict /other/dict]", paths[:2])
+	}
+}

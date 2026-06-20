@@ -2177,3 +2177,26 @@ func TestMergeFlagsFastPath(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCrossProduct(t *testing.T) {
+	if ok, err := isCrossProduct("Y"); !ok || err != nil {
+		t.Errorf("isCrossProduct(Y) = %v, %v; want true, nil", ok, err)
+	}
+	if ok, err := isCrossProduct("N"); ok || err != nil {
+		t.Errorf("isCrossProduct(N) = %v, %v; want false, nil", ok, err)
+	}
+	if _, err := isCrossProduct("X"); err == nil {
+		t.Error("isCrossProduct(X): want error, got nil")
+	}
+}
+
+func TestMarkCompoundWord(t *testing.T) {
+	aff := "COMPOUNDMIN 2\nCOMPOUNDBEGIN A\nCOMPOUNDEND B\nCOMPOUNDMIDDLE C\n"
+	gs, err := NewGoSpellReader(strings.NewReader(aff), strings.NewReader("3\nbase/A\nword/B\nmid/C\n"))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	if gs.compoundBeginFlag == "" {
+		t.Error("compoundBeginFlag should be set after parsing COMPOUNDBEGIN")
+	}
+}

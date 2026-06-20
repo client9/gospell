@@ -293,3 +293,74 @@ func minIntForTest(vals ...int) int {
 	}
 	return out
 }
+
+func TestCasePriority(t *testing.T) {
+	cases := []struct {
+		candidate, query wordCase
+		want             int
+	}{
+		{allLower, allLower, 0},
+		{titleCase, allLower, 1},
+		{allUpper, allLower, 2},
+		{mixedCase, allLower, 3},
+		{allLower, titleCase, 1},
+		{allUpper, titleCase, 2},
+		{mixedCase, titleCase, 3},
+		{titleCase, allUpper, 1},
+		{allLower, allUpper, 2},
+		{mixedCase, allUpper, 3},
+		{allLower, mixedCase, 3},
+	}
+	for _, tt := range cases {
+		got := casePriority(tt.candidate, tt.query)
+		if got != tt.want {
+			t.Errorf("casePriority(%v, %v) = %d, want %d", tt.candidate, tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestMutationCaseVariantsAllUpper(t *testing.T) {
+	got := mutationCaseVariants("WORD")
+	if len(got) < 3 || got[0] != "WORD" || got[1] != "word" || got[2] != "Word" {
+		t.Errorf("mutationCaseVariants(allUpper) = %v, want [WORD word Word]", got)
+	}
+}
+
+func TestMutationCaseVariantsTitleCase(t *testing.T) {
+	got := mutationCaseVariants("Hello")
+	if len(got) < 2 || got[0] != "Hello" || got[1] != "hello" {
+		t.Errorf("mutationCaseVariants(titleCase) = %v, want [Hello hello]", got)
+	}
+}
+
+func TestMutationCaseVariantsMixedCase(t *testing.T) {
+	got := mutationCaseVariants("camelCase")
+	if len(got) < 2 || got[0] != "camelCase" || got[1] != "camelcase" {
+		t.Errorf("mutationCaseVariants(mixedCase) = %v, want [camelCase camelcase]", got)
+	}
+}
+
+func TestQwertyNeighborsForRuneKnown(t *testing.T) {
+	if len(qwertyNeighborsForRune('a')) == 0 {
+		t.Error("qwertyNeighborsForRune('a') returned empty, expected QWERTY neighbors")
+	}
+}
+
+func TestQwertyNeighborsForRuneUnknown(t *testing.T) {
+	if qwertyNeighborsForRune('中') != nil {
+		t.Error("qwertyNeighborsForRune(non-ASCII) should return nil")
+	}
+}
+
+func TestEntrySuggestableNilAffix(t *testing.T) {
+	if !entrySuggestable([]string{"NOSUGGEST"}, nil) {
+		t.Error("entrySuggestable with nil affix should always return true")
+	}
+}
+
+func TestMutationSuggesterInitNilSource(t *testing.T) {
+	s := NewMutationSuggester(MutationOptions{})
+	if err := s.Init(nil); err == nil {
+		t.Error("Init(nil): want error, got nil")
+	}
+}

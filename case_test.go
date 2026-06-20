@@ -45,3 +45,28 @@ func TestCaseVariations(t *testing.T) {
 		}
 	}
 }
+
+func TestCaseVariationsAllUpper(t *testing.T) {
+	got := caseVariations("UPPER", allUpper)
+	if len(got) != 1 || got[0] != "UPPER" {
+		t.Errorf("caseVariations(allUpper) = %v, want [UPPER]", got)
+	}
+}
+
+func TestCaseVariationsTitleCase(t *testing.T) {
+	// default branch: returns [word, strings.ToUpper(word)]
+	got := caseVariations("Hello", titleCase)
+	want := []string{"Hello", "HELLO"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("caseVariations(titleCase) = %v, want %v", got, want)
+	}
+}
+
+func TestCaseVariationsMixedCase(t *testing.T) {
+	// default branch: returns [word, strings.ToUpper(word)]
+	got := caseVariations("camelCase", mixedCase)
+	want := []string{"camelCase", "CAMELCASE"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("caseVariations(mixedCase) = %v, want %v", got, want)
+	}
+}
