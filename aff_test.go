@@ -730,6 +730,42 @@ baz/CA
 	}
 }
 
+// A stem with an inner capital, capitalized at the start of a sentence
+// ("uLinda" written "ULinda"), is matched by lowering only the first letter.
+// Mirrors hunspell's tests/gh106 fixture.
+func TestMixedCaseInitialCapital(t *testing.T) {
+	sampleAff := `
+PFX a Y 1
+PFX a u no u
+`
+	sampleDic := `1
+uLinda/a
+`
+	gs, err := NewGoSpellReader(strings.NewReader(sampleAff), strings.NewReader(sampleDic))
+	if err != nil {
+		t.Fatalf("Unable to create GoSpell: %v", err)
+	}
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"uLinda", true},
+		{"noLinda", true},
+		{"ULinda", true},
+		{"NoLinda", true},
+		// Only the first letter is lowered, so fully folded forms stay wrong.
+		{"ulinda", false},
+		{"nolinda", false},
+		{"Ulinda", false},
+		{"Nolinda", false},
+	}
+	for pos, tt := range cases {
+		if got := gs.Spell(tt.word); got != tt.want {
+			t.Errorf("%d %q got %v want %v", pos, tt.word, got, tt.want)
+		}
+	}
+}
+
 func TestLimitMultipleCompoundingRegression(t *testing.T) {
 	sampleAff := `
 SET UTF-8

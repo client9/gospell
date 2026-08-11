@@ -236,9 +236,10 @@ func (s *GoSpell) spellConverted(word string) bool {
 	//   titleCase query "Junkyard" → try lowercase "junkyard"
 	//   allUpper  query "JUNKYARD" → try lowercase "junkyard",
 	//                                then title "Junkyard" (for proper nouns like "LONDON")
+	//   mixedCase query "ULinda"   → try "uLinda" (only when it starts uppercase)
 	//
-	// allLower and mixedCase queries get no fallback — hunspell rejects
-	// e.g. "london" even when "London" is in the dictionary.
+	// allLower queries get no fallback — hunspell rejects e.g. "london" even
+	// when "London" is in the dictionary.
 	switch caseStyle(word) {
 	case titleCase:
 		lower := strings.ToLower(word)
@@ -275,6 +276,20 @@ func (s *GoSpell) spellConverted(word string) bool {
 		// would be lost by round-tripping through ToLower then ToUpper.
 		if _, size := utf8.DecodeRuneInString(word); size > 0 {
 			if s.spellExact(word[:size] + strings.ToLower(word[size:])) {
+				return true
+			}
+		}
+	case mixedCase:
+		// A stem with an inner capital, capitalized at the start of a sentence
+		// ("uLinda" written "ULinda"), is found by lowering only the first
+		// letter.  The rest of the word keeps its casing, so "ULinda" only
+		// matches "uLinda" and never "ulinda".
+		r, size := utf8.DecodeRuneInString(word)
+		if unicode.IsUpper(r) {
+			lowered := unicode.ToLower(r)
+			// Guard, as in titleCase: only accept if the first rune round-trips,
+			// so "İXyz" isn't accepted just because "iXyz" is in the dict.
+			if unicode.ToUpper(lowered) == r && s.spellExact(string(lowered)+word[size:]) {
 				return true
 			}
 		}
