@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## Fixed
+
+- Fixed upstream Hunspell bug gh106
+- Updated dependencies
+
 ## [v0.9.2] - 2026-16-019
 
 ## Added
