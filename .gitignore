@@ -32,6 +32,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# Artifacts
+gospell
+
 # AIism
 CLAUDE.md
 .claude/
