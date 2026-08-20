@@ -867,11 +867,11 @@ func newDictConfig(file io.Reader) (*dictConfig, error) {
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %d fields, expected 2", len(parts))
 			}
-			val, err := strconv.ParseInt(parts[1], 10, 64)
+			val, err := strconv.Atoi(parts[1])
 			if err != nil {
 				return nil, fmt.Errorf("COMPOUNDMIN stanza had %q expected number", parts[1])
 			}
-			aff.CompoundMin = int(val)
+			aff.CompoundMin = val
 			if aff.CompoundMin < 1 {
 				aff.CompoundMin = 1
 			}
