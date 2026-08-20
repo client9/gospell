@@ -79,10 +79,10 @@ func TestHunspellFixtures(t *testing.T) {
 				t.Fatalf("load dictionary: %v", err)
 			}
 
-			if err := checkFixtureWords(t, gs, goodPath, true); err != nil {
+			if err := checkFixtureWords(gs, goodPath, true); err != nil {
 				t.Fatal(err)
 			}
-			if err := checkFixtureWords(t, gs, wrongPath, false); err != nil {
+			if err := checkFixtureWords(gs, wrongPath, false); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -98,7 +98,7 @@ func skipHunspellFixture(base string) (bool, string) {
 	}
 }
 
-func checkFixtureWords(t *testing.T, gs *GoSpell, path string, want bool) error {
+func checkFixtureWords(gs *GoSpell, path string, want bool) error {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

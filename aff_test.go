@@ -228,7 +228,7 @@ SFX B y ied y
 		{"work/AB", []string{"work", "worked", "reworked", "rework"}},
 	}
 	for pos, tt := range cases {
-		got, err := aff.expand(tt.word, nil)
+		got, err := aff.expand(tt.word)
 		if err != nil {
 			t.Errorf("%d: affix expansions error: %s", pos, err)
 		}
@@ -260,7 +260,7 @@ SFX C 0 s .
 		t.Fatalf("Unable to parse sample: %s", err)
 	}
 
-	got, err := aff.expand("work/ABC", nil)
+	got, err := aff.expand("work/ABC")
 	if err != nil {
 		t.Fatalf("affix expansion error: %s", err)
 	}
@@ -557,7 +557,7 @@ SFX S   0     suf         .
 		t.Fatalf("Unable to create dict config: %v", err)
 	}
 
-	got, err := aff.expand("foo/XPS", nil)
+	got, err := aff.expand("foo/XPS")
 	if err != nil {
 		t.Fatalf("expand failed: %v", err)
 	}
@@ -591,7 +591,7 @@ PFX 3 0 un .
 		t.Fatalf("Unable to create dict config: %v", err)
 	}
 
-	got, err := aff.expand("foo/A3", nil)
+	got, err := aff.expand("foo/A3")
 	if err != nil {
 		t.Fatalf("expand failed: %v", err)
 	}
@@ -631,7 +631,7 @@ SFX Y 0 ly .
 
 	// "great/SY": S (no OutFlags) must not permit Y on "greats".
 	// Expected forms: great, greats, greatly — NOT greatsly.
-	got, err := aff.expand("great/SY", nil)
+	got, err := aff.expand("great/SY")
 	if err != nil {
 		t.Fatalf("expand great/SY: %v", err)
 	}
@@ -643,7 +643,7 @@ SFX Y 0 ly .
 
 	// "good/AY": A (OutFlags=Y) must permit Y on "goods".
 	// Expected forms: good, goods, goodsly, goodly.
-	got, err = aff.expand("good/AY", nil)
+	got, err = aff.expand("good/AY")
 	if err != nil {
 		t.Fatalf("expand good/AY: %v", err)
 	}

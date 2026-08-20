@@ -241,6 +241,9 @@ func (s *GoSpell) spellConverted(word string) bool {
 	// allLower queries get no fallback — hunspell rejects e.g. "london" even
 	// when "London" is in the dictionary.
 	switch caseStyle(word) {
+	case allLower:
+		// No fallback: hunspell rejects e.g. "london" even when "London" is
+		// in the dictionary.
 	case titleCase:
 		lower := strings.ToLower(word)
 		// Only accept the lowercase form if its title-case reconstruction

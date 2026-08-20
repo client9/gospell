@@ -211,14 +211,14 @@ type dictConfig struct {
 	BreakEnabled          bool // false only when BREAK 0 is set
 }
 
-// expand takes a raw .dic entry (e.g. "work/AB") and appends all valid
-// inflected forms to out, returning the updated slice.
-func (a *dictConfig) expand(wordAffix string, out []string) ([]string, error) {
+// expand takes a raw .dic entry (e.g. "work/AB") and returns all valid
+// inflected forms.
+func (a *dictConfig) expand(wordAffix string) ([]string, error) {
 	records, err := a.expandRecords(wordAffix)
 	if err != nil {
 		return nil, err
 	}
-	out = out[:0]
+	out := make([]string, 0, len(records))
 	for _, rec := range records {
 		out = append(out, rec.word)
 	}
