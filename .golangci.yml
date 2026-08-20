@@ -1,7 +1,7 @@
 version: "2"
 
 run:
-  go: "1.26"
+  go: "1.25"
   timeout: 5m
 
 linters:
@@ -13,6 +13,15 @@ linters:
     - unparam
     - exhaustive
     - prealloc
+    - errorlint
+    - perfsprint
+    - unconvert
+    - wastedassign
+    - gocritic
+    - predeclared
+    - nilerr
+    - usetesting
+    - nolintlint
   exclusions:
     generated: lax
     presets:

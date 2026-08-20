@@ -3,6 +3,7 @@ package gospell
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -175,7 +176,7 @@ func (s *GoSpell) SetSuggester(suggester Suggestions) error {
 // Suggest returns spelling suggestions using the configured suggester.
 func (s *GoSpell) Suggest(word string, limit int) ([]Suggestion, error) {
 	if s.suggester == nil {
-		return nil, fmt.Errorf("no suggester configured")
+		return nil, errors.New("no suggester configured")
 	}
 	return s.suggester.Suggest(word, limit)
 }
@@ -483,13 +484,13 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 		if err := scanner.Err(); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("dic file is empty")
+		return nil, errors.New("dic file is empty")
 	}
 	line := strings.TrimSpace(scanner.Text())
 	line = strings.TrimPrefix(line, "\uFEFF")
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("dic file header is empty")
+		return nil, errors.New("dic file header is empty")
 	}
 	_, err = strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
@@ -531,7 +532,7 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 			continue
 		}
 		if err := gs.addRootEntry(line, affix); err != nil {
-			return nil, fmt.Errorf("unable to process %q: %s", line, err)
+			return nil, fmt.Errorf("unable to process %q: %w", line, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -579,12 +580,12 @@ func NewGoSpellReader(aff, dic io.Reader) (*GoSpell, error) {
 func NewGoSpell(affFile, dicFile string) (*GoSpell, error) {
 	aff, err := os.Open(affFile)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open aff: %s", err)
+		return nil, fmt.Errorf("unable to open aff: %w", err)
 	}
 	defer func() { _ = aff.Close() }()
 	dic, err := os.Open(dicFile)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open dic: %s", err)
+		return nil, fmt.Errorf("unable to open dic: %w", err)
 	}
 	defer func() { _ = dic.Close() }()
 	return NewGoSpellReader(aff, dic)

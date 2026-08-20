@@ -1,7 +1,7 @@
 package gospell
 
 import (
-	"fmt"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -43,7 +43,7 @@ func NewMutationSuggester(opts MutationOptions) *MutationSuggester {
 // Init stores the suggestion source for later membership checks.
 func (s *MutationSuggester) Init(src SuggestionSource) error {
 	if src == nil {
-		return fmt.Errorf("nil suggestion source")
+		return errors.New("nil suggestion source")
 	}
 	s.src = src
 	s.spell = src.HasWord

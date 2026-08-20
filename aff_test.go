@@ -47,10 +47,8 @@ COMPOUNDMIN 2
 
 	if len(aff.IconvReplacements) != 2 {
 		t.Errorf("Didn't get ICONV replacement")
-	} else {
-		if aff.IconvReplacements[0] != "a" || aff.IconvReplacements[1] != "b" {
-			t.Errorf("Replacement isnt a->b, got %v", aff.IconvReplacements)
-		}
+	} else if aff.IconvReplacements[0] != "a" || aff.IconvReplacements[1] != "b" {
+		t.Errorf("Replacement isnt a->b, got %v", aff.IconvReplacements)
 	}
 
 	if len(aff.Replacements) != 1 {

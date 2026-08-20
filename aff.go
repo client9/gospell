@@ -3,6 +3,7 @@ package gospell
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -86,19 +87,19 @@ func (a affix) expand(word, flags string, state affixState, c compoundRules, mod
 		if r.matcher != nil && !r.matcher.MatchString(word) {
 			continue
 		}
-		mask := compoundMask(0)
+		var mask compoundMask
 		forbid := false
-		if flagContains(r.OutFlags, c.Forbid, mode) {
-			mask = 0
+		switch {
+		case flagContains(r.OutFlags, c.Forbid, mode):
 			forbid = true
-		} else if flagContains(r.OutFlags, c.Flag, mode) || flagContains(r.OutFlags, c.Permit, mode) {
+		case flagContains(r.OutFlags, c.Flag, mode) || flagContains(r.OutFlags, c.Permit, mode):
 			mask = compoundBegin | compoundMiddle | compoundEnd
 			if flagContains(r.OutFlags, c.Only, mode) {
 				mask &^= compoundEnd
 			}
-		} else if a.Type == prefix {
+		case a.Type == prefix:
 			mask = compoundBegin
-		} else {
+		default:
 			mask = compoundEnd
 		}
 		var outState affixState
@@ -261,7 +262,7 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 		return []expandedWord{{word: word}}, nil
 	}
 	if word == "" || keyString == "" {
-		return nil, fmt.Errorf("slash char found in first or last position")
+		return nil, errors.New("slash char found in first or last position")
 	}
 	normedFlags := a.normalizeFlags(keyString)
 	keys, err := a.splitFlags(normedFlags)
@@ -275,7 +276,7 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 		if a.isCompoundOnlyFlag(key) {
 			rootOnly = true
 		}
-		if key == string(a.CompoundForbidFlag) {
+		if key == a.CompoundForbidFlag {
 			rootForbid = true
 		}
 	}
@@ -435,7 +436,7 @@ func (w *expandWalk) expand(p expandPath) error {
 				continue
 			}
 			next := p
-			crossing := false
+			var crossing bool
 			if wantType == prefix {
 				if p.prefixCount >= 1 {
 					continue
