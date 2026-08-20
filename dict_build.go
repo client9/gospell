@@ -59,15 +59,29 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	if affix == nil {
 		return entry
 	}
-	if (rec.forbid && rec.state == 0) || hasFlagToken(rawFlags, affix.CompoundForbidFlag) {
+	// For derived (non-root) surface forms, RawFlags should reflect the full
+	// accumulated flag set - root flags plus any continuation-class flags
+	// picked up from applied affixes - not just the root dic entry's own
+	// flags. This lets CHECKCOMPOUNDPATTERN and similar flag lookups see a
+	// condition flag that arrives through a PFX/SFX continuation class
+	// rather than being declared directly on the dictionary entry.
+	if rec.state != 0 {
+		// rec.flags was already normalized by expandStateRecords before being
+		// stored on the expandedWord, so it can be split directly here.
+		if tokens, err := affix.splitFlags(rec.flags); err == nil {
+			entry.RawFlags = tokens
+		}
+	}
+	flags := entry.RawFlags
+	if (rec.forbid && rec.state == 0) || hasFlagToken(flags, affix.CompoundForbidFlag) {
 		entry.CompoundForbidden = true
 	}
-	if affix.ForbiddenWordFlag != "" && hasFlagToken(rawFlags, affix.ForbiddenWordFlag) {
+	if affix.ForbiddenWordFlag != "" && hasFlagToken(flags, affix.ForbiddenWordFlag) {
 		entry.StandaloneAllowed = false
 		entry.CompoundForbidden = true
 		entry.ForbiddenWord = true
 	}
-	if rec.compoundOnly || hasFlagToken(rawFlags, affix.CompoundOnly) {
+	if rec.compoundOnly || hasFlagToken(flags, affix.CompoundOnly) {
 		entry.OnlyInCompound = true
 		entry.StandaloneAllowed = false
 		entry.CompoundStartAllowed = true
@@ -75,13 +89,13 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 		// ONLYINCOMPOUND without explicit position flags is valid at all positions.
 		entry.CompoundEndAllowed = !hasExplicitCompoundPosition(rec.flags, affix)
 	}
-	if rec.mask&compoundBegin != 0 || hasFlagToken(rawFlags, affix.CompoundBeginFlag) {
+	if rec.mask&compoundBegin != 0 || hasFlagToken(flags, affix.CompoundBeginFlag) {
 		entry.CompoundStartAllowed = true
 	}
-	if rec.mask&compoundMiddle != 0 || hasFlagToken(rawFlags, affix.CompoundMiddleFlag) {
+	if rec.mask&compoundMiddle != 0 || hasFlagToken(flags, affix.CompoundMiddleFlag) {
 		entry.CompoundMiddleAllowed = true
 	}
-	if rec.mask&compoundEnd != 0 || hasFlagToken(rawFlags, affix.CompoundEndFlag) {
+	if rec.mask&compoundEnd != 0 || hasFlagToken(flags, affix.CompoundEndFlag) {
 		entry.CompoundEndAllowed = true
 	}
 	return entry

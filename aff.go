@@ -284,13 +284,20 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 	added := make(map[string]int)
 	seen := make(map[string]struct{})
 	var out []expandedWord
-	if err := a.expandStateRecords(word, keyString, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, &out); err != nil {
+	if err := a.expandStateRecords(word, keyString, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, true, true, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, out *[]expandedWord) error {
+// prefixCross and suffixCross track whether the affix(es) of each type
+// applied so far along the current derivation path have CrossProduct=Y.
+// They are vacuously true until an affix of that type has actually been
+// applied. They matter only at the moment a prefix and a suffix are
+// combined on the same word ("crossing"): Hunspell requires CrossProduct=Y
+// on both sides of that combination (SFX/PFX header field 2), not just on
+// whichever affix rule provides the matching continuation flag.
+func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, prefixCross, suffixCross bool, out *[]expandedWord) error {
 	flags = a.normalizeFlags(flags)
 	keys, err := a.splitFlags(flags)
 	if err != nil {
@@ -352,11 +359,13 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 			}
 			nextPrefixCount := prefixCount
 			nextSuffixCount := suffixCount
+			crossing := false
 			if wantType == prefix {
 				if prefixCount >= 1 {
 					continue
 				}
 				nextPrefixCount++
+				crossing = suffixCount > 0
 			} else {
 				if suffixCount >= 2 {
 					continue
@@ -367,6 +376,7 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 					continue
 				}
 				nextSuffixCount++
+				crossing = suffixCount == 0 && prefixCount > 0
 			}
 			if _, ok := used[key]; ok {
 				continue
@@ -374,6 +384,27 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 			af, ok := a.AffixMap[key]
 			if !ok || af.Type != wantType {
 				continue
+			}
+			// A prefix and a suffix may only combine on the same word if both
+			// affixes declare CrossProduct=Y; otherwise this key is not usable
+			// in this position.
+			if crossing {
+				if wantType == prefix {
+					if !af.CrossProduct || !suffixCross {
+						continue
+					}
+				} else {
+					if !af.CrossProduct || !prefixCross {
+						continue
+					}
+				}
+			}
+			nextPrefixCross := prefixCross
+			nextSuffixCross := suffixCross
+			if wantType == prefix {
+				nextPrefixCross = af.CrossProduct
+			} else {
+				nextSuffixCross = suffixCross && af.CrossProduct
 			}
 			var expanded []expandedWord
 			expanded = af.expand(word, flags, currentState, c, a.flagMode, needsAffix, expanded[:0])
@@ -385,7 +416,7 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 				if nextSuffixCount > suffixCount {
 					nextSuffixChainFlags = ew.explicitFlags
 				}
-				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, used, seen, nextPrefixCount, nextSuffixCount, out); err != nil {
+				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, used, seen, nextPrefixCount, nextSuffixCount, nextPrefixCross, nextSuffixCross, out); err != nil {
 					return err
 				}
 			}

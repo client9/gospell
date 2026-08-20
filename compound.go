@@ -270,7 +270,9 @@ func (s *GoSpell) wordHasFlag(word, flag string) bool {
 
 // wordOrRootHasFlag checks whether word has flag either via its own wordFlags
 // (root dic entries, state==0) or via the RawFlags carried in its surface
-// entries (which record the original dic entry's flags for derived forms).
+// entries (which record the accumulated flag set - root flags plus any
+// continuation-class flags picked up from applied affixes - for derived
+// forms; see buildSurfaceEntry).
 func (s *GoSpell) wordOrRootHasFlag(word, flag string) bool {
 	if flag == "" {
 		return false

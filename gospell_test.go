@@ -101,6 +101,42 @@ func TestGoSpellInputConversion(t *testing.T) {
 	}
 }
 
+// TestCheckCompoundPatternContinuationFlag mirrors hunspell's own
+// checkcompoundpattern5 fixture: the CHECKCOMPOUNDPATTERN condition flags
+// (A1, A2) are never on the dic entries themselves ("foo", "bar") - they
+// only arrive via the PA/SA affixes' continuation classes. The compound
+// boundary check must still see them on the derived forms ("xxfoo", "baryy").
+func TestCheckCompoundPatternContinuationFlag(t *testing.T) {
+	aff := `FLAG long
+COMPOUNDMIN 3
+COMPOUNDBEGIN CB
+COMPOUNDEND CE
+
+CHECKCOMPOUNDPATTERN 1
+CHECKCOMPOUNDPATTERN /A1 /A2
+
+PFX PA Y 1
+PFX PA 0 xx/A1 .
+
+SFX SA Y 1
+SFX SA 0 yy/A2 .
+`
+	dic := `2
+foo/CBPA
+bar/CESA
+`
+	gs, err := NewGoSpellReader(strings.NewReader(aff), strings.NewReader(dic))
+	if err != nil {
+		t.Fatalf("NewGoSpellReader: %v", err)
+	}
+	if gs.Spell("xxfoobaryy") {
+		t.Error(`Spell("xxfoobaryy") = true, want false: CHECKCOMPOUNDPATTERN should block the compound using the A1/A2 flags carried by the PA/SA continuation classes`)
+	}
+	if !gs.Spell("foobar") {
+		t.Error(`Spell("foobar") = false, want true: the plain (unaffixed) compound has neither A1 nor A2, so the pattern should not block it`)
+	}
+}
+
 func TestSetSuggesterNil(t *testing.T) {
 	gs := makeTestGoSpell(t)
 	if err := gs.SetSuggester(nil); err != nil {

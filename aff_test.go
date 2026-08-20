@@ -238,6 +238,48 @@ SFX B y ied y
 	}
 }
 
+// TestExpandCrossProduct mirrors hunspell's own trace_xprod fixture: a
+// suffix marked CrossProduct=N (SFX C) must not combine with a prefix
+// (PFX A), even though both apply independently and PFX A does combine
+// with a CrossProduct=Y suffix (SFX B).
+func TestExpandCrossProduct(t *testing.T) {
+	sample := `
+SET UTF-8
+
+PFX A Y 1
+PFX A 0 re .
+
+SFX B Y 1
+SFX B 0 ed .
+
+SFX C N 1
+SFX C 0 s .
+`
+	aff, err := newDictConfig(strings.NewReader(sample))
+	if err != nil {
+		t.Fatalf("Unable to parse sample: %s", err)
+	}
+
+	got, err := aff.expand("work/ABC", nil)
+	if err != nil {
+		t.Fatalf("affix expansion error: %s", err)
+	}
+	want := []string{"work", "rework", "worked", "works", "reworked"}
+	sort.Strings(got)
+	sortedWant := append([]string(nil), want...)
+	sort.Strings(sortedWant)
+	if !reflect.DeepEqual(sortedWant, got) {
+		t.Errorf("affix expansion want %v got %v", want, got)
+	}
+	for _, bad := range []string{"reworks"} {
+		for _, w := range got {
+			if w == bad {
+				t.Errorf("affix expansion produced %q, which crosses a CrossProduct=N suffix with a prefix", bad)
+			}
+		}
+	}
+}
+
 func TestCompound(t *testing.T) {
 	sampleAff := `
 SET UTF-8
