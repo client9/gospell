@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Fixed
 
+- Fixed to sync with upstream Hunspell behavior
 - Fixed upstream Hunspell bug gh106
 - Updated dependencies
 
