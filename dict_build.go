@@ -66,7 +66,7 @@ func buildSurfaceEntry(word string, rawFlags []string, affix *dictConfig, rec ex
 	// condition flag that arrives through a PFX/SFX continuation class
 	// rather than being declared directly on the dictionary entry.
 	if rec.state != 0 {
-		// rec.flags was already normalized by expandStateRecords before being
+		// rec.flags was already normalized by expandWalk.expand before being
 		// stored on the expandedWord, so it can be split directly here.
 		if tokens, err := affix.splitFlags(rec.flags); err == nil {
 			entry.RawFlags = tokens

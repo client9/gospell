@@ -281,72 +281,149 @@ func (a *dictConfig) expandRecords(wordAffix string) ([]expandedWord, error) {
 	}
 	// The root dic entry is a virtual stem if it carries the NEEDAFFIX flag.
 	rootNeedsAffix := a.NeedAffixFlag != "" && flagContains(normedFlags, a.NeedAffixFlag, a.flagMode)
-	added := make(map[string]int)
-	seen := make(map[string]struct{})
-	var out []expandedWord
-	if err := a.expandStateRecords(word, keyString, keyString, rootOnly, rootMask, 0, rootForbid, rootNeedsAffix, added, map[string]struct{}{}, seen, 0, 0, true, true, &out); err != nil {
+	w := &expandWalk{
+		a:     a,
+		added: make(map[string]int),
+		used:  make(map[string]struct{}),
+		seen:  make(map[string]struct{}),
+	}
+	root := expandPath{
+		word:             word,
+		flags:            keyString,
+		suffixChainFlags: keyString,
+		compoundOnly:     rootOnly,
+		mask:             rootMask,
+		forbid:           rootForbid,
+		needsAffix:       rootNeedsAffix,
+		prefixCross:      true,
+		suffixCross:      true,
+	}
+	if err := w.expand(root); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return w.out, nil
 }
 
-// prefixCross and suffixCross track whether the affix(es) of each type
-// applied so far along the current derivation path have CrossProduct=Y.
-// They are vacuously true until an affix of that type has actually been
-// applied. They matter only at the moment a prefix and a suffix are
-// combined on the same word ("crossing"): Hunspell requires CrossProduct=Y
-// on both sides of that combination (SFX/PFX header field 2), not just on
-// whichever affix rule provides the matching continuation flag.
-func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, needsAffix bool, added map[string]int, used map[string]struct{}, seen map[string]struct{}, prefixCount, suffixCount int, prefixCross, suffixCross bool, out *[]expandedWord) error {
-	flags = a.normalizeFlags(flags)
-	keys, err := a.splitFlags(flags)
+// expandPath is the state of a single derivation branch through
+// expandWalk.expand: the word as affixed so far, and the bookkeeping needed
+// to decide which affixes may still apply to it. It is copied (not shared)
+// at each recursive step, so mutating a field only affects that branch.
+type expandPath struct {
+	word  string
+	flags string
+	// suffixChainFlags holds only the OutFlags emitted by the most recently
+	// applied suffix; a second, chained suffix may only use flags from this
+	// set, not the word's full flag set (see the suffixCount>=1 check below).
+	suffixChainFlags string
+	compoundOnly     bool
+	mask             compoundMask
+	state            affixState
+	forbid           bool
+	needsAffix       bool
+	prefixCount      int
+	suffixCount      int
+	// prefixCross and suffixCross track whether the affix(es) of each type
+	// applied so far along this path have CrossProduct=Y. They are
+	// vacuously true until an affix of that type has actually been applied.
+	// They matter only at the moment a prefix and a suffix are combined on
+	// the same word ("crossing"): Hunspell requires CrossProduct=Y on both
+	// sides of that combination (SFX/PFX header field 2), not just on
+	// whichever affix rule provides the matching continuation flag.
+	prefixCross bool
+	suffixCross bool
+}
+
+// key builds a dedup/cycle-detection key for the path's externally-visible
+// state — the parts that determine what expand does, not how it got there.
+// flags is assumed pre-sorted by normalizeFlags — no copy or re-sort is
+// performed here.
+func (p expandPath) key(flags []string) string {
+	var b strings.Builder
+	b.WriteString(p.word)
+	b.WriteByte('\x00')
+	for i, f := range flags {
+		if i > 0 {
+			b.WriteByte('\x1f')
+		}
+		b.WriteString(f)
+	}
+	b.WriteByte('\x00')
+	b.WriteString(strconv.FormatBool(p.compoundOnly))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(int(p.mask)))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(int(p.state)))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.FormatBool(p.forbid))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(p.prefixCount))
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(p.suffixCount))
+	return b.String()
+}
+
+// expandWalk holds the state shared across an entire expandRecords
+// traversal — dedup/cycle-detection sets and the accumulated output —
+// as opposed to expandPath, which is specific to one derivation branch.
+type expandWalk struct {
+	a     *dictConfig
+	added map[string]int
+	used  map[string]struct{}
+	seen  map[string]struct{}
+	out   []expandedWord
+}
+
+func (w *expandWalk) expand(p expandPath) error {
+	a := w.a
+	p.flags = a.normalizeFlags(p.flags)
+	keys, err := a.splitFlags(p.flags)
 	if err != nil {
 		return err
 	}
-	stateKey := a.expandStateKey(word, keys, compoundOnly, currentMask, currentState, explicitForbid, prefixCount, suffixCount)
-	_, alreadySeen := seen[stateKey]
-	seen[stateKey] = struct{}{}
+	stateKey := p.key(keys)
+	_, alreadySeen := w.seen[stateKey]
+	w.seen[stateKey] = struct{}{}
 	if !alreadySeen {
 		for _, key := range keys {
 			if _, ok := a.compoundMap[key]; ok {
-				a.compoundMap[key] = append(a.compoundMap[key], word)
+				a.compoundMap[key] = append(a.compoundMap[key], p.word)
 			}
 			if key == a.ForceUcaseFlag {
 				if a.forceUcaseWords == nil {
 					a.forceUcaseWords = make(map[string]struct{})
 				}
-				a.forceUcaseWords[word] = struct{}{}
+				a.forceUcaseWords[p.word] = struct{}{}
 			}
 			if a.isCompoundOnlyFlag(key) {
-				compoundOnly = true
+				p.compoundOnly = true
 				continue
 			}
 		}
-		a.markCompoundWord(word, currentMask, compoundOnly, explicitForbid)
+		a.markCompoundWord(p.word, p.mask, p.compoundOnly, p.forbid)
 	}
 	// Always update the output record: the "false wins" needsAffix merge must
 	// run even on a repeated stateKey so that a path arriving with
 	// needsAffix=false (e.g. a zero-suffix applied to a NEEDAFFIX stem) can
 	// clear the flag set by an earlier needsAffix=true path.
-	if idx, ok := added[word]; !ok {
-		added[word] = len(*out)
-		*out = append(*out, expandedWord{
-			word:         word,
-			flags:        flags,
-			mask:         currentMask,
-			state:        currentState,
-			forbid:       explicitForbid,
-			compoundOnly: compoundOnly,
-			needsAffix:   needsAffix,
+	if idx, ok := w.added[p.word]; !ok {
+		w.added[p.word] = len(w.out)
+		w.out = append(w.out, expandedWord{
+			word:         p.word,
+			flags:        p.flags,
+			mask:         p.mask,
+			state:        p.state,
+			forbid:       p.forbid,
+			compoundOnly: p.compoundOnly,
+			needsAffix:   p.needsAffix,
 		})
 	} else {
-		rec := &(*out)[idx]
-		rec.mask |= currentMask
-		rec.state |= currentState
-		rec.forbid = rec.forbid || explicitForbid
-		rec.compoundOnly = rec.compoundOnly || compoundOnly
+		rec := &w.out[idx]
+		rec.mask |= p.mask
+		rec.state |= p.state
+		rec.forbid = rec.forbid || p.forbid
+		rec.compoundOnly = rec.compoundOnly || p.compoundOnly
 		// false wins: if any path reaches this form without needsAffix, it is valid
-		rec.needsAffix = rec.needsAffix && needsAffix
+		rec.needsAffix = rec.needsAffix && p.needsAffix
 	}
 	if alreadySeen {
 		return nil
@@ -357,28 +434,27 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 			if a.isCompoundOnlyFlag(key) || a.isCompoundRuleFlag(key) {
 				continue
 			}
-			nextPrefixCount := prefixCount
-			nextSuffixCount := suffixCount
+			next := p
 			crossing := false
 			if wantType == prefix {
-				if prefixCount >= 1 {
+				if p.prefixCount >= 1 {
 					continue
 				}
-				nextPrefixCount++
-				crossing = suffixCount > 0
+				next.prefixCount++
+				crossing = p.suffixCount > 0
 			} else {
-				if suffixCount >= 2 {
+				if p.suffixCount >= 2 {
 					continue
 				}
 				// When chaining a second suffix, only allow flags explicitly emitted
 				// by the first suffix's rule, not inherited root flags.
-				if suffixCount >= 1 && !flagContains(suffixChainFlags, key, a.flagMode) {
+				if p.suffixCount >= 1 && !flagContains(p.suffixChainFlags, key, a.flagMode) {
 					continue
 				}
-				nextSuffixCount++
-				crossing = suffixCount == 0 && prefixCount > 0
+				next.suffixCount++
+				crossing = p.suffixCount == 0 && p.prefixCount > 0
 			}
-			if _, ok := used[key]; ok {
+			if _, ok := w.used[key]; ok {
 				continue
 			}
 			af, ok := a.AffixMap[key]
@@ -390,37 +466,40 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 			// in this position.
 			if crossing {
 				if wantType == prefix {
-					if !af.CrossProduct || !suffixCross {
+					if !af.CrossProduct || !p.suffixCross {
 						continue
 					}
 				} else {
-					if !af.CrossProduct || !prefixCross {
+					if !af.CrossProduct || !p.prefixCross {
 						continue
 					}
 				}
 			}
-			nextPrefixCross := prefixCross
-			nextSuffixCross := suffixCross
 			if wantType == prefix {
-				nextPrefixCross = af.CrossProduct
+				next.prefixCross = af.CrossProduct
 			} else {
-				nextSuffixCross = suffixCross && af.CrossProduct
+				next.suffixCross = p.suffixCross && af.CrossProduct
 			}
 			var expanded []expandedWord
-			expanded = af.expand(word, flags, currentState, c, a.flagMode, needsAffix, expanded[:0])
-			used[key] = struct{}{}
+			expanded = af.expand(p.word, p.flags, p.state, c, a.flagMode, p.needsAffix, expanded[:0])
+			w.used[key] = struct{}{}
 			for _, ew := range expanded {
-				nextOnly := compoundOnly
-				a.markCompoundWord(ew.word, ew.mask, nextOnly, ew.forbid)
-				nextSuffixChainFlags := suffixChainFlags
-				if nextSuffixCount > suffixCount {
-					nextSuffixChainFlags = ew.explicitFlags
+				branch := next
+				branch.word = ew.word
+				branch.flags = ew.flags
+				branch.mask = ew.mask
+				branch.state = ew.state
+				branch.forbid = ew.forbid
+				branch.needsAffix = ew.needsAffix
+				a.markCompoundWord(branch.word, branch.mask, branch.compoundOnly, branch.forbid)
+				if branch.suffixCount > p.suffixCount {
+					branch.suffixChainFlags = ew.explicitFlags
 				}
-				if err := a.expandStateRecords(ew.word, ew.flags, nextSuffixChainFlags, nextOnly, ew.mask, ew.state, ew.forbid, ew.needsAffix, added, used, seen, nextPrefixCount, nextSuffixCount, nextPrefixCross, nextSuffixCross, out); err != nil {
+				if err := w.expand(branch); err != nil {
 					return err
 				}
 			}
-			delete(used, key)
+			delete(w.used, key)
 		}
 		return nil
 	}
@@ -435,33 +514,6 @@ func (a *dictConfig) expandStateRecords(word, flags, suffixChainFlags string, co
 
 func appendFlags(base, extra string, mode flagMode) string {
 	return mergeFlags(mode, base, extra)
-}
-
-// expandStateKey builds a deduplication key for the (word, flags, compound/affix state) tuple.
-// flags is assumed pre-sorted by normalizeFlags — no copy or re-sort is performed here.
-func (a *dictConfig) expandStateKey(word string, flags []string, compoundOnly bool, currentMask compoundMask, currentState affixState, explicitForbid bool, prefixCount, suffixCount int) string {
-	var b strings.Builder
-	b.WriteString(word)
-	b.WriteByte('\x00')
-	for i, f := range flags {
-		if i > 0 {
-			b.WriteByte('\x1f')
-		}
-		b.WriteString(f)
-	}
-	b.WriteByte('\x00')
-	b.WriteString(strconv.FormatBool(compoundOnly))
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(int(currentMask)))
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(int(currentState)))
-	b.WriteByte('\x00')
-	b.WriteString(strconv.FormatBool(explicitForbid))
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(prefixCount))
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(suffixCount))
-	return b.String()
 }
 
 func (a *dictConfig) normalizeFlags(flags string) string {
