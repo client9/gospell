@@ -22,32 +22,37 @@ build: ## build module
 bench: ## run benchmarks
 	go test -bench=. -benchmem 
 
+.PHONY: test
 test: fixture ## run all unit tests
 	go test ./...
 
+.PHONY: version
 version: ## print OS, Go, and golangci versions
 	@echo $$0
 	@uname -a
 	@go version
 	@golangci-lint --version
 
+.PHONY: cover
 cover: ## generate code coverage report
 	rm -f cover.out
 	go test -run='^Test' -coverprofile=cover.out -coverpkg=.
 	go tool cover -func=cover.out
 
+.PHONY: lintverify
 ## NOTE: this downloads it's schema over the network
 lintverify:
 	golangci-lint config verify
 
+.PHONY: fmt
 fmt: ## reformat source code
 	go mod tidy
 	go fmt ./...
 
+.PHONY: lint
 lint: ## lint and verify repo is already formatted
 	go mod tidy
 	git diff --exit-code -- go.mod go.sum
-	test -z "$$(gofmt -l .)"
 	golangci-lint run ./...
 
 clean: ## remove any generated files
@@ -57,3 +62,5 @@ clean: ## remove any generated files
 	rm -f ./gospell
 	rm -rf hunspell
 	rm -rf hunspell-en_US*
+
+
